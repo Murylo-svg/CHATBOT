@@ -1,0 +1,443 @@
+/* ============================================================
+   Agente de IA — folha de estilo única
+   Paleta: sage claro / tinta grafite / verde-musgo como acento
+   ============================================================ */
+
+:root {
+  --fundo: #eef1ec;
+  --superficie: #ffffff;
+  --tinta: #1b2320;
+  --tinta-suave: #5c6a64;
+  --linha: #d7ddd6;
+  --acento: #1f6b4a;
+  --acento-claro: #e7f1ea;
+  --alerta: #b4362f;
+  --raio: 10px;
+  --fonte-titulo: "Fraunces", Georgia, "Times New Roman", serif;
+  --fonte-corpo: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--fundo);
+  color: var(--tinta);
+  font-family: var(--fonte-corpo);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2 {
+  font-family: var(--fonte-titulo);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: var(--raio);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+}
+
+/* ---------- Indicador de saúde da API ---------- */
+.status {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 13px 6px 11px;
+  border-radius: 999px;
+  background: var(--superficie);
+  border: 1px solid var(--linha);
+  color: var(--tinta-suave);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+}
+
+.status .luz {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #9aa5a0;
+  flex-shrink: 0;
+}
+
+.status .luz.piscando { animation: pulsar 1.5s ease-in-out infinite; }
+
+@keyframes pulsar {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status .luz.piscando { animation: none; }
+}
+
+/* ============================================================
+   TELA DE ENTRADA (index.html)
+   ============================================================ */
+
+.entrada {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.cartao {
+  width: 100%;
+  max-width: 400px;
+  background: var(--superficie);
+  border: 1px solid var(--linha);
+  border-radius: 16px;
+  padding: 36px 32px 32px;
+}
+
+.cartao h1 {
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+.cartao .subtitulo {
+  color: var(--tinta-suave);
+  margin: 10px 0 28px;
+  font-size: 14px;
+}
+
+.abas {
+  display: flex;
+  gap: 4px;
+  background: var(--fundo);
+  padding: 4px;
+  border-radius: var(--raio);
+  margin-bottom: 22px;
+}
+
+.abas button {
+  flex: 1;
+  padding: 9px;
+  background: transparent;
+  color: var(--tinta-suave);
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.abas button.ativa {
+  background: var(--superficie);
+  color: var(--tinta);
+  box-shadow: 0 1px 2px rgba(27, 35, 32, 0.08);
+}
+
+.campo { margin-bottom: 16px; }
+
+.campo label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--tinta-suave);
+}
+
+.campo input {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--linha);
+  border-radius: var(--raio);
+  background: var(--fundo);
+  color: var(--tinta);
+  font-family: inherit;
+  font-size: 15px;
+}
+
+.campo input:focus {
+  background: var(--superficie);
+  border-color: var(--acento);
+}
+
+.botao-principal {
+  width: 100%;
+  padding: 12px;
+  background: var(--acento);
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  margin-top: 6px;
+}
+
+.botao-principal:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.aviso {
+  margin-top: 16px;
+  padding: 10px 13px;
+  border-radius: var(--raio);
+  font-size: 13.5px;
+  display: none;
+}
+
+.aviso.erro {
+  display: block;
+  background: #fbeceb;
+  color: var(--alerta);
+}
+
+.aviso.sucesso {
+  display: block;
+  background: var(--acento-claro);
+  color: var(--acento);
+}
+
+/* ============================================================
+   TELA DE CHAT (chat.html)
+   ============================================================ */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 800px;
+  margin: 0 auto;
+  background: var(--superficie);
+  border-left: 1px solid var(--linha);
+  border-right: 1px solid var(--linha);
+}
+
+.topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--linha);
+  flex-shrink: 0;
+}
+
+.topo h2 { font-size: 19px; }
+
+.topo .quem {
+  font-size: 12.5px;
+  color: var(--tinta-suave);
+  margin-top: 1px;
+}
+
+.acoes { display: flex; gap: 8px; }
+
+.botao-fraco {
+  padding: 7px 12px;
+  background: var(--fundo);
+  color: var(--tinta-suave);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--linha);
+}
+
+.botao-fraco:hover { color: var(--tinta); }
+
+.conversa {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.vazio {
+  margin: auto;
+  text-align: center;
+  color: var(--tinta-suave);
+  max-width: 340px;
+}
+
+.vazio h2 {
+  font-size: 22px;
+  color: var(--tinta);
+  margin-bottom: 8px;
+}
+
+.vazio p { margin: 0; font-size: 14px; }
+
+.balao { max-width: 76%; }
+
+.balao.de-usuario { align-self: flex-end; }
+
+.balao.de-ia { align-self: flex-start; }
+
+.balao .corpo {
+  padding: 11px 15px;
+  border-radius: 16px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.balao.de-usuario .corpo {
+  background: var(--tinta);
+  color: #f2f5f2;
+  border-bottom-right-radius: 4px;
+}
+
+.balao.de-ia .corpo {
+  background: var(--fundo);
+  color: var(--tinta);
+  border-bottom-left-radius: 4px;
+}
+
+.balao img {
+  display: block;
+  max-width: 260px;
+  width: 100%;
+  border-radius: 12px;
+  margin-bottom: 7px;
+  border: 1px solid var(--linha);
+}
+
+.balao.de-usuario img { margin-left: auto; }
+
+.etiqueta-ferramenta {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--acento-claro);
+  color: var(--acento);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.digitando {
+  display: flex;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--fundo);
+  border-radius: 16px;
+  border-bottom-left-radius: 4px;
+  width: fit-content;
+  align-self: flex-start;
+}
+
+.digitando span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tinta-suave);
+  animation: saltar 1.2s infinite;
+}
+
+.digitando span:nth-child(2) { animation-delay: 0.15s; }
+.digitando span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes saltar {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.rodape {
+  border-top: 1px solid var(--linha);
+  padding: 12px 16px 16px;
+  flex-shrink: 0;
+}
+
+.previa {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: var(--fundo);
+  border-radius: var(--raio);
+  font-size: 13px;
+  color: var(--tinta-suave);
+}
+
+.previa.visivel { display: flex; }
+
+.previa img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.previa button {
+  margin-left: auto;
+  background: transparent;
+  color: var(--alerta);
+  font-size: 13px;
+  padding: 4px 8px;
+}
+
+.composicao {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.composicao textarea {
+  flex: 1;
+  resize: none;
+  max-height: 140px;
+  padding: 11px 14px;
+  border: 1px solid var(--linha);
+  border-radius: 20px;
+  background: var(--fundo);
+  color: var(--tinta);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.composicao textarea:focus { background: var(--superficie); }
+
+.icone {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  font-size: 18px;
+  background: var(--fundo);
+  border: 1px solid var(--linha);
+  color: var(--tinta-suave);
+}
+
+.icone.enviar {
+  background: var(--acento);
+  border-color: var(--acento);
+  color: #fff;
+}
+
+.icone:disabled { opacity: 0.45; cursor: not-allowed; }
+
+@media (max-width: 640px) {
+  .balao { max-width: 88%; }
+  .topo { padding: 12px 14px; }
+  .conversa { padding: 18px 14px; }
+  .status { top: auto; bottom: 86px; right: 12px; }
+}

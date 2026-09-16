@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Entrar — Agente de IA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <div class="status" id="status" role="status" tabindex="0">
+    <span class="luz piscando"></span>
+    <span class="rotulo">Verificando</span>
+  </div>
+
+  <main class="entrada">
+    <div class="cartao">
+      <h1>Seu assistente com memória</h1>
+      <p class="subtitulo">Converse, envie imagens e pergunte sobre o tempo em qualquer cidade.</p>
+
+      <div class="abas" role="tablist">
+        <button type="button" class="ativa" data-aba="login" role="tab">Entrar</button>
+        <button type="button" data-aba="cadastro" role="tab">Criar conta</button>
+      </div>
+
+      <form id="formulario" novalidate>
+        <div class="campo" id="campo-nome" hidden>
+          <label for="nome">Nome</label>
+          <input type="text" id="nome" autocomplete="name" placeholder="Como quer ser chamado" />
+        </div>
+
+        <div class="campo">
+          <label for="email">E-mail</label>
+          <input type="email" id="email" autocomplete="email" placeholder="voce@exemplo.com" required />
+        </div>
+
+        <div class="campo">
+          <label for="senha">Senha</label>
+          <input type="password" id="senha" autocomplete="current-password" placeholder="Mínimo de 6 caracteres" required />
+        </div>
+
+        <button type="submit" class="botao-principal" id="enviar">Entrar</button>
+      </form>
+
+      <div class="aviso" id="aviso" role="alert"></div>
+    </div>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/status.js"></script>
+  <script src="js/auth.js"></script>
+</body>
+</html>
