@@ -4,8 +4,8 @@ Chatbot com conta de usuário, memória persistente, análise de imagens e acess
 dados em tempo real. Cada pessoa tem seu próprio histórico, isolado por
 autenticação JWT.
 
-> 🔗 **Aplicação:** https://seu-projeto.vercel.app
-> 🔗 **API:** https://seu-backend.onrender.com
+> 🔗 **Aplicação:** [meu-projeto-vercel](https://chatbot-eight-mocha-65.vercel.app/)
+> 🔗 **API:** [meu-backend-render](https://agente-ia-backend-y32a.onrender.com)
 > 🟢 **Health check:** https://seu-backend.onrender.com/api/health
 
 ---
