@@ -1,7 +1,7 @@
 const { consultarClima } = require('./weather');
 
 const MODELO = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-const BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const INSTRUCAO_SISTEMA = `Voce e um assistente pessoal inteligente e prestativo, dentro de um aplicativo de chat.
 Regras:
@@ -61,11 +61,26 @@ async function chamarGemini(contents) {
       }),
     });
 
-    const dados = await resposta.json();
+    const textoBruto = await resposta.text();
+
+    let dados;
+    try {
+      dados = textoBruto ? JSON.parse(textoBruto) : null;
+    } catch {
+      // O Google devolveu algo que nao e JSON (corpo vazio, HTML de erro, etc.)
+      throw new Error(
+        `Gemini: resposta invalida (HTTP ${resposta.status}). ` +
+        `Corpo recebido: ${textoBruto.slice(0, 200) || '(vazio)'}`
+      );
+    }
 
     if (!resposta.ok) {
       const msg = dados?.error?.message || `HTTP ${resposta.status}`;
       throw new Error('Gemini: ' + msg);
+    }
+
+    if (!dados) {
+      throw new Error(`Gemini: resposta vazia (HTTP ${resposta.status}).`);
     }
 
     return dados;
