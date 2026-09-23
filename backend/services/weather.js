@@ -35,8 +35,15 @@ async function buscarJson(url, timeoutMs = 8000) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const resposta = await fetch(url, { signal: controller.signal });
+    const textoBruto = await resposta.text();
+
     if (!resposta.ok) throw new Error('HTTP ' + resposta.status);
-    return await resposta.json();
+
+    try {
+      return textoBruto ? JSON.parse(textoBruto) : {};
+    } catch {
+      throw new Error(`resposta invalida do servico de clima: ${textoBruto.slice(0, 150) || '(vazio)'}`);
+    }
   } finally {
     clearTimeout(timer);
   }
