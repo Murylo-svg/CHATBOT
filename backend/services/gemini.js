@@ -1,7 +1,7 @@
 const { consultarClima } = require('./weather');
 
 const MODELO = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 const INSTRUCAO_SISTEMA = `Voce e um assistente pessoal inteligente e prestativo, dentro de um aplicativo de chat.
 Regras:
