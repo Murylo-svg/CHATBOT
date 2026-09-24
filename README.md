@@ -6,7 +6,6 @@ autenticação JWT.
 
 > 🔗 **Aplicação:** [meu-projeto-vercel](https://chatbot-eight-mocha-65.vercel.app/)
 > 🔗 **API:** [meu-backend-render](https://agente-ia-backend-y32a.onrender.com)
-> 🟢 **Health check:** https://seu-backend.onrender.com/api/health
 
 ---
 
