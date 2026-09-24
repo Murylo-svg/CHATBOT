@@ -155,4 +155,4 @@ Clicar na luz força uma nova verificação.
 
 ## 👤 Autor
 
-**[SEU NOME]** — [@seu-usuario](https://github.com/seu-usuario)
+**[DEV.HX]** — [@Murylo-svg](https://github.com/Murylo-svg )
