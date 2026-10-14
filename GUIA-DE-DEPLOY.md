@@ -25,9 +25,11 @@ Siga na ordem. Do zero ao ar em mais ou menos 40 minutos.
 2. No Dashboard, revele o **API Environment variable**
 3. Copie o valor inteiro: `cloudinary://123456:abcdef@seu-cloud-name`
 
-### Groq (segunda IA, para o Debate de IAs)
-1. Acesse console.groq.com e entre com Google ou GitHub (não pede cartão)
-2. **API Keys** → **Create API Key** → copie (começa com `gsk_`)
+### Mistral (segunda IA, para o Debate de IAs)
+1. Acesse console.mistral.ai e crie a conta
+2. Em **Billing / Plans**, escolha o plano gratuito **Experiment** (não pede cartão,
+   só verificação por telefone)
+3. **API Keys** → **Create new key** → copie a chave (ela só aparece uma vez)
 
 ### JWT_SECRET
 No terminal:
@@ -88,8 +90,8 @@ git commit -am "Remove .env do versionamento"
    GEMINI_API_KEY     = ...
    GEMINI_MODEL       = gemini-2.0-flash
    GEMINI_MAX_SIMULTANEAS = 3            (opcional)
-   GROQ_API_KEY       = gsk_...
-   GROQ_MODEL         = llama-3.3-70b-versatile   (opcional)
+   MISTRAL_API_KEY    = ...
+   MISTRAL_MODEL      = mistral-small-latest      (opcional)
    DEBATE_INTERVALO_SEGUNDOS = 8         (opcional)
    CLOUDINARY_URL     = cloudinary://...
    NODE_ENV           = production
@@ -199,7 +201,7 @@ Abra o chat em **duas janelas** (uma normal e uma anônima) com **contas diferen
 | 7. Reconexão | DevTools → Network → Offline na janela B, envie pela A, volte para Online | B mostra "Reconectando…" e depois recebe a mensagem uma vez só |
 | 8. Imagem | Envie uma foto com "@gemini que fruta é essa?" | A imagem aparece nas duas janelas e o bot descreve |
 | 9. Histórico | Recarregue a página | As mensagens voltam sem duplicar |
-| 11. Debate | Clique em 🎭 Debate de IAs, tema "cachorro ou gato?", 4 falas, 8 s | Gemini e Llama se alternam nas duas janelas, com contagem regressiva no painel |
+| 11. Debate | Clique em 🎭 Debate de IAs, tema "cachorro ou gato?", 4 falas, 8 s | Gemini e Mistral se alternam nas duas janelas, com contagem regressiva no painel |
 | 12. Parar debate | Comece outro debate e digite `@parar` | O painel some e nenhuma fala nova aparece |
 | 10. Limpar | Clique em "Limpar histórico" na janela A | As mensagens de A (e as respostas do bot a A) somem nas duas janelas |
 
@@ -231,14 +233,18 @@ codificados) ou Network Access fechado no Atlas.
 Pergunte de forma direta: "Qual a temperatura em Tóquio agora?". Se o modelo
 não existir mais, troque `GEMINI_MODEL` para `gemini-1.5-flash`.
 
-**Debate: "O debate precisa da GROQ_API_KEY"**
-Faltou a variável `GROQ_API_KEY` no Render (ou o serviço não reiniciou depois de salvar).
+**Debate: "O debate precisa da MISTRAL_API_KEY"**
+Faltou a variável `MISTRAL_API_KEY` no Render (ou o serviço não reiniciou depois de salvar).
+As variáveis `GROQ_API_KEY` e `GROQ_MODEL` não são mais usadas e podem ser apagadas.
 
-**Debate interrompido: "Groq: The model ... does not exist" / "has been decommissioned"**
-A Groq troca os modelos de tempos em tempos. O servidor já tenta sozinho um Llama
-disponível na sua conta (aparece um aviso nos logs do Render com o nome escolhido).
-Para fixar, veja os modelos atuais em console.groq.com/docs/models (coluna "Model ID")
-ou no Playground da Groq, e ajuste `GROQ_MODEL` no Render, sem aspas nem espaços.
+**Debate interrompido: "Mistral: Unauthorized"**
+A chave está errada ou o plano Experiment ainda não foi ativado em console.mistral.ai.
+
+**Debate interrompido: "Mistral: Invalid model"**
+O valor de `MISTRAL_MODEL` não existe. O servidor já tenta sozinho outro modelo
+disponível na sua conta (o nome escolhido aparece nos logs do Render). Para fixar,
+apague `MISTRAL_MODEL` (o padrão é `mistral-small-latest`) ou use um ID da lista em
+docs.mistral.ai/getting-started/models, sem aspas nem espaços.
 
 **"This model is currently experiencing high demand"**
 O modelo do Gemini está sobrecarregado no Google (erro 503). O servidor já tenta de novo

@@ -19,7 +19,7 @@ conversa quando alguém escreve `@gemini` ou `@bot`.
 | 🛡️ **Socket autenticado** | O JWT é validado no handshake (`io.use`). Token ausente, inválido ou expirado é recusado |
 | 🪪 **Identidade real** | O nome exibido vem do MongoDB, nunca do que o navegador envia |
 | 🤖 **Moderador Gemini** | Só responde mensagens com `@gemini` ou `@bot`, e a resposta aparece para todos |
-| 🎭 **Debate de IAs** | Gemini (Google) × Llama (Meta, via Groq) debatem um tema em turnos, com intervalo para dar tempo de ler |
+| 🎭 **Debate de IAs** | Gemini (Google) × Mistral (Mistral AI) debatem um tema em turnos, com intervalo para dar tempo de ler |
 | 🧠 **Memória** | As últimas 20 mensagens da sala (com o nome de quem falou) vão como contexto para a IA |
 | 👁️ **Visão** | A imagem vai pelo socket, é validada, sobe para o Cloudinary e segue em base64 para o Gemini |
 | 🌦️ **Ações reais** | A IA chama sozinha a função de clima (Open-Meteo) quando a pergunta exige |
@@ -36,7 +36,7 @@ conversa quando alguém escreve `@gemini` ou `@bot`.
 **Front-end** — HTML, CSS e JavaScript puro + cliente Socket.io (sem build, sem framework)
 **Banco** — MongoDB Atlas
 **IA** — Google Gemini (modelo configurável em `GEMINI_MODEL`), multimodal e com function calling
-**2ª IA** — Llama 3.3 70B (Meta) pela API gratuita da Groq (`GROQ_MODEL`), usada no Debate de IAs
+**2ª IA** — Mistral Small (`MISTRAL_MODEL`) pelo plano gratuito da Mistral AI, usada no Debate de IAs
 **Imagens** — Cloudinary
 **Clima** — Open-Meteo (API pública, não exige chave)
 **Hospedagem** — Render (API + WebSocket) e Vercel (interface)
@@ -63,8 +63,9 @@ conversa quando alguém escreve `@gemini` ou `@bot`.
 │   ├── services/
 │   │   ├── gemini.js           chamada à IA e resolução de function calling
 │   │   ├── salaPublica.js      (novo) validação, persistência e Moderador Gemini
-│   │   ├── debate.js           (novo) debate Gemini × Llama com turnos e intervalo
-│   │   ├── groq.js             (novo) cliente da Groq (Llama)
+│   │   ├── debate.js           (novo) debate Gemini × Mistral com turnos e intervalo
+│   │   ├── mistral.js          (novo) cliente da Mistral AI
+│   │   ├── tentativas.js       (novo) novas tentativas em erros temporários
 │   │   ├── cloudinary.js       upload de imagens
 │   │   └── weather.js          consulta de clima (a "ferramenta" da IA)
 │   ├── socket/index.js         (novo) Socket.io: autenticação, eventos e usuários online
@@ -141,11 +142,11 @@ Duas IAs diferentes e gratuitas conversam entre si na sala, e todo mundo assiste
 | | IA | Empresa | Onde pegar a chave (grátis) |
 |---|---|---|---|
 | 🤖 | Gemini (`GEMINI_MODEL`) | Google | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
-| 🦙 | Llama 3.3 70B (`GROQ_MODEL`) | Meta, rodando na Groq | [console.groq.com/keys](https://console.groq.com/keys) |
+| 🌀 | Mistral Small (`MISTRAL_MODEL`) | Mistral AI (França) | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) (plano Experiment: sem cartão, pede verificação por telefone) |
 
 **Como usar:** clique em **🎭 Debate de IAs**, escreva o tema e escolha quantas falas
 (4 a 12) e o tempo entre elas (5 a 20 s). Ou digite na sala `@debate pizza com abacaxi?`
-(usa os padrões: 8 falas, 8 s). O Gemini abre defendendo um lado, o Llama rebate com o
+(usa os padrões: 8 falas, 8 s). O Gemini abre defendendo um lado, o Mistral rebate com o
 outro, e eles se alternam. Um painel mostra o tema, a fala atual e a contagem regressiva
 até a próxima.
 
@@ -155,7 +156,7 @@ até a próxima.
 de 3 s (protege a cota grátis das duas APIs); para sozinho se todos saírem da sala ou se uma
 IA falhar de vez; as falas das IAs não acionam o `@gemini` (não há loop).
 
-**IA sobrecarregada:** quando o Google ou a Groq respondem "high demand" (503), limite de
+**IA sobrecarregada:** quando o Google ou a Mistral respondem "high demand" (503), limite de
 requisições (429) ou outro erro temporário, a chamada é repetida até 3 vezes com espera
 crescente. No debate, se ainda falhar, o painel mostra "⏳ ... está sobrecarregado. Tentando
 de novo..." e o servidor espera mais (5 s, 10 s, 15 s) antes de desistir. Erros definitivos,
@@ -202,8 +203,8 @@ anônima) e entre com contas diferentes.
 | `GEMINI_MODEL` | não | Modelo do Gemini. Padrão `gemini-2.0-flash` |
 | `GEMINI_MODEL_RESERVA` | não | Modelo usado se o principal seguir sobrecarregado ("high demand") |
 | `GEMINI_MAX_SIMULTANEAS` | não | Respostas do Moderador ao mesmo tempo. Padrão `3` |
-| `GROQ_API_KEY` | para o debate | [console.groq.com/keys](https://console.groq.com/keys) (grátis, sem cartão) |
-| `GROQ_MODEL` | não | Modelo da Groq. Padrão `llama-3.3-70b-versatile` |
+| `MISTRAL_API_KEY` | para o debate | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) (plano gratuito Experiment) |
+| `MISTRAL_MODEL` | não | Modelo do Mistral. Padrão `mistral-small-latest` |
 | `DEBATE_TURNOS` / `DEBATE_TURNOS_MAX` | não | Falas padrão (8) e máximo (20) |
 | `DEBATE_INTERVALO_SEGUNDOS` | não | Tempo padrão entre falas. Padrão `8` |
 | `CLOUDINARY_URL` | sim | [Cloudinary](https://cloudinary.com) → Dashboard → API Environment variable |

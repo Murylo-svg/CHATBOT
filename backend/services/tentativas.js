@@ -1,5 +1,5 @@
 /**
- * Novas tentativas para APIs de IA (Gemini e Groq).
+ * Novas tentativas para APIs de IA (Gemini e Mistral).
  *
  * Erros como "This model is currently experiencing high demand" (HTTP 503),
  * limite de requisicoes (429) e falhas 5xx costumam passar em poucos segundos.

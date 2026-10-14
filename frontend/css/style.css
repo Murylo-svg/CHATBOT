@@ -547,13 +547,13 @@ a:focus-visible {
 .aviso-chat.sucesso { background: var(--acento-claro); color: var(--acento); }
 
 /* ---------- Debate entre IAs ---------- */
-.balao.de-llama .corpo {
-  background: #f3effa;
-  border: 1px solid #d9cdee;
+.balao.de-segunda-ia .corpo {
+  background: #fdf1e7;
+  border: 1px solid #f2d3b8;
 }
 
-.balao.de-llama .remetente .nome,
-.digitando.de-llama em { color: #5b3f8c; }
+.balao.de-segunda-ia .remetente .nome,
+.digitando.de-segunda-ia em { color: #a4521a; }
 
 .painel-debate {
   display: flex;
