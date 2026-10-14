@@ -234,9 +234,11 @@ não existir mais, troque `GEMINI_MODEL` para `gemini-1.5-flash`.
 **Debate: "O debate precisa da GROQ_API_KEY"**
 Faltou a variável `GROQ_API_KEY` no Render (ou o serviço não reiniciou depois de salvar).
 
-**Debate interrompido: "Groq: The model ... has been decommissioned"**
-A Groq troca os modelos de tempos em tempos. Veja os atuais em
-console.groq.com/docs/models e ajuste `GROQ_MODEL` no Render.
+**Debate interrompido: "Groq: The model ... does not exist" / "has been decommissioned"**
+A Groq troca os modelos de tempos em tempos. O servidor já tenta sozinho um Llama
+disponível na sua conta (aparece um aviso nos logs do Render com o nome escolhido).
+Para fixar, veja os modelos atuais em console.groq.com/docs/models (coluna "Model ID")
+ou no Playground da Groq, e ajuste `GROQ_MODEL` no Render, sem aspas nem espaços.
 
 **"This model is currently experiencing high demand"**
 O modelo do Gemini está sobrecarregado no Google (erro 503). O servidor já tenta de novo

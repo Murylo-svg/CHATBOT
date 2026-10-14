@@ -56,9 +56,30 @@ global.fetch = async (url, opcoes) => {
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   }
+  if (String(url).endsWith('api.groq.com/openai/v1/models')) {
+    consultasModelosGroq += 1;
+    return new Response(
+      JSON.stringify({
+        data: [
+          { id: 'whisper-large-v3', active: true },
+          { id: 'qwen-qwq-32b', active: true },
+          { id: 'llama-4-scout-17b-16e-instruct', active: true },
+          { id: 'llama-3.9-8b-instant', active: true },
+          { id: 'meta-llama/llama-guard-4-12b', active: true },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
   if (String(url).includes('api.groq.com')) {
     const corpo = JSON.parse(opcoes.body);
     chamadasGroq.push({ corpo, headers: opcoes.headers });
+    if (modelosGroqAposentados.has(corpo.model)) {
+      return new Response(
+        JSON.stringify({ error: { message: `The model \`${corpo.model}\` does not exist or you do not have access to it.`, code: 'model_not_found' } }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
     await new Promise((r) => setTimeout(r, 30));
     return new Response(
       JSON.stringify({ choices: [{ message: { role: 'assistant', content: `Llama: discordo, fala ${chamadasGroq.length}. @gemini` } }] }),
@@ -68,6 +89,8 @@ global.fetch = async (url, opcoes) => {
   return fetchOriginal(url, opcoes);
 };
 const chamadasGroq = [];
+const modelosGroqAposentados = new Set();
+let consultasModelosGroq = 0;
 
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
@@ -696,4 +719,20 @@ test('erro definitivo (ex.: chave invalida) interrompe o debate na hora, sem ins
   const final = await fim;
   assert.match(final.motivo, /Debate interrompido.*API key not valid/);
   assert.equal(chamadasGemini.length, 1);
+});
+
+// Deve ficar por ultimo: troca o modelo da Groq em uso para o resto do processo
+test('modelo da Groq aposentado: o servidor escolhe sozinho um Llama disponivel', async () => {
+  modelosGroqAposentados.add('llama-3.3-70b-versatile');
+  const ana = await cadastrar('Ana');
+  const sa = await conectado(cliente(ana.token));
+  const fim = esperarFimDebate(sa);
+  const ack = await emitir(sa, { texto: '@debate modelo aposentado', clientId: novoId(), debate: { turnos: 2, intervalo: 0 } });
+  assert.equal(ack.ok, true, ack.erro);
+  const final = await fim;
+  assert.match(final.motivo, /Fim do debate/);
+
+  assert.equal(consultasModelosGroq, 1);
+  assert.deepEqual(chamadasGroq.map((c) => c.corpo.model), ['llama-3.3-70b-versatile', 'llama-3.9-8b-instant']);
+  assert.ok(sa.recebidas.some((m) => m.debate && m.bot === 'llama'));
 });
