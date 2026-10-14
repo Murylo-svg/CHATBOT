@@ -87,6 +87,11 @@
       "</div>";
   }
 
+  // Qualquer IA que não seja o Gemini principal (Gemini 2, Mistral; "llama" = falas antigas)
+  function ehSegundaIA(bot) {
+    return Boolean(bot) && bot !== "gemini";
+  }
+
   function ehMinha(mensagem) {
     return mensagem.autor === "user" && usuario && String(mensagem.usuario) === String(usuario._id);
   }
@@ -103,10 +108,10 @@
   function criarBalao(mensagem) {
     const bot = mensagem.autor === "model";
     const balao = document.createElement("div");
-    // de-usuario = minha | de-outro = outra pessoa | de-ia de-bot = IA (de-llama = Llama)
+    // de-usuario = minha | de-outro = outra pessoa | de-ia de-bot = IA (de-segunda-ia = Gemini 2 / Mistral)
     balao.className =
       "balao " +
-      (bot ? "de-ia de-bot" + (mensagem.bot === "llama" ? " de-llama" : "") : ehMinha(mensagem) ? "de-usuario" : "de-outro");
+      (bot ? "de-ia de-bot" + (ehSegundaIA(mensagem.bot) ? " de-segunda-ia" : "") : ehMinha(mensagem) ? "de-usuario" : "de-outro");
 
     // Nome sempre vindo do servidor (nomeAutor), nunca digitado pelo cliente
     const cabecalho = document.createElement("div");
@@ -194,7 +199,7 @@
   }
 
   // chave: "moderador" (resposta a @gemini/@bot) ou "debate" (debate entre IAs)
-  function mostrarDigitando(ativo, nome = "🤖 Moderador Gemini", chave = "moderador", llama = false) {
+  function mostrarDigitando(ativo, nome = "🤖 Moderador Gemini", chave = "moderador", segundaIA = false) {
     let bloco = document.getElementById("digitando-" + chave);
     if (!ativo) {
       if (bloco) bloco.remove();
@@ -202,7 +207,7 @@
     }
     if (bloco) bloco.remove();
     bloco = document.createElement("div");
-    bloco.className = "digitando" + (llama ? " de-llama" : "");
+    bloco.className = "digitando" + (segundaIA ? " de-segunda-ia" : "");
     bloco.id = "digitando-" + chave;
     bloco.title = nome + " está escrevendo";
     const rotulo = document.createElement("em");
@@ -321,7 +326,7 @@
   socket.on("moderadorDigitando", (dados) => mostrarDigitando(Boolean(dados && dados.ativo)));
 
   socket.on("iaDigitando", (dados) =>
-    mostrarDigitando(Boolean(dados && dados.ativo), dados && dados.nome, "debate", dados && dados.bot === "llama")
+    mostrarDigitando(Boolean(dados && dados.ativo), dados && dados.nome, "debate", dados && ehSegundaIA(dados.bot))
   );
 
   // ---------- Debate entre IAs ----------

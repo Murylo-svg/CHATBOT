@@ -54,10 +54,10 @@ const mensagemSchema = new mongoose.Schema(
       ref: 'Mensagem',
       default: null,
     },
-    // Qual IA escreveu (autor 'model'): 'gemini' ou 'llama'
+    // Qual IA escreveu (autor 'model'): 'gemini', 'gemini2' ou 'mistral' ('llama' = falas antigas)
     bot: {
       type: String,
-      enum: ['gemini', 'llama', null],
+      enum: ['gemini', 'gemini2', 'mistral', 'llama', null],
       default: null,
     },
     // Debate entre IAs: id da mensagem humana que abriu o debate

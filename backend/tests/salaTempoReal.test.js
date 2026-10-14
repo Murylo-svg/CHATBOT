@@ -23,7 +23,7 @@ process.env.MONGO_URI = MONGO_URI_TESTE;
 process.env.JWT_SECRET = 'segredo-de-teste-' + Date.now();
 process.env.GEMINI_API_KEY = 'chave-falsa';
 process.env.CORS_ORIGIN = 'https://meu-app.vercel.app';
-process.env.GROQ_API_KEY = 'chave-groq-falsa';
+process.env.MISTRAL_API_KEY = 'chave-mistral-falsa';
 process.env.DEBATE_INTERVALO_MIN_SEGUNDOS = '0'; // testes rapidos
 process.env.API_ESPERA_BASE_MS = '10';
 process.env.DEBATE_ESPERA_ERRO_MS = '50';
@@ -37,12 +37,14 @@ cloudinary.enviarImagem = async (buffer, usuarioId) => {
 };
 
 const chamadasGemini = [];
+const urlsGemini = [];
 const falhasGemini = []; // respostas de erro a devolver antes das proximas respostas normais
 let respostaGemini = 'Ola! Eu sou o moderador.';
 const fetchOriginal = global.fetch;
 global.fetch = async (url, opcoes) => {
   if (String(url).includes('generativelanguage.googleapis.com')) {
     chamadasGemini.push(JSON.parse(opcoes.body));
+    urlsGemini.push(String(url));
     const falha = falhasGemini.shift();
     if (falha) {
       return new Response(JSON.stringify({ error: { code: falha.status, message: falha.mensagem } }), {
@@ -56,18 +58,41 @@ global.fetch = async (url, opcoes) => {
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   }
-  if (String(url).includes('api.groq.com')) {
+  if (String(url).endsWith('api.mistral.ai/v1/models')) {
+    consultasModelosMistral += 1;
+    return new Response(
+      JSON.stringify({
+        data: [
+          { id: 'mistral-embed', capabilities: { completion_chat: false } },
+          { id: 'mistral-moderation-latest', capabilities: { completion_chat: false } },
+          { id: 'codestral-latest', capabilities: { completion_chat: true } },
+          { id: 'mistral-small-2599', capabilities: { completion_chat: true } },
+          { id: 'mistral-large-latest', capabilities: { completion_chat: true } },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+  if (String(url).includes('api.mistral.ai')) {
     const corpo = JSON.parse(opcoes.body);
-    chamadasGroq.push({ corpo, headers: opcoes.headers });
+    chamadasMistral.push({ corpo, headers: opcoes.headers });
+    if (modelosMistralAposentados.has(corpo.model)) {
+      return new Response(
+        JSON.stringify({ object: 'error', message: `Invalid model: ${corpo.model}`, type: 'invalid_model', code: '1500' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
     await new Promise((r) => setTimeout(r, 30));
     return new Response(
-      JSON.stringify({ choices: [{ message: { role: 'assistant', content: `Llama: discordo, fala ${chamadasGroq.length}. @gemini` } }] }),
+      JSON.stringify({ choices: [{ message: { role: 'assistant', content: `Mistral: discordo, fala ${chamadasMistral.length}. @gemini` } }] }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   }
   return fetchOriginal(url, opcoes);
 };
-const chamadasGroq = [];
+const chamadasMistral = [];
+const modelosMistralAposentados = new Set();
+let consultasModelosMistral = 0;
 
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
@@ -171,7 +196,8 @@ beforeEach(async () => {
   while (abertos.length) abertos.pop().disconnect();
   await pausa(50);
   chamadasGemini.length = 0;
-  chamadasGroq.length = 0;
+  urlsGemini.length = 0;
+  chamadasMistral.length = 0;
   falhasGemini.length = 0;
   respostaGemini = 'Ola! Eu sou o moderador.';
 });
@@ -524,7 +550,7 @@ test('limpar historico apaga as mensagens da pessoa e as respostas do bot, avisa
   assert.ok(ids.includes(doBeto.mensagem._id), 'mensagens de outras pessoas ficam');
 });
 
-// ---------- Debate entre IAs (Gemini x Llama/Groq) ----------
+// ---------- Debate entre IAs (Gemini x Mistral) ----------
 function esperarFimDebate(socket, ms = 8000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('debate nao terminou')), ms);
@@ -537,7 +563,7 @@ function esperarFimDebate(socket, ms = 8000) {
   });
 }
 
-test('@debate coloca Gemini e Llama para conversar em turnos, com intervalo, visivel para todos', async () => {
+test('@debate coloca Gemini e Mistral para conversar em turnos, com intervalo, visivel para todos', async () => {
   const ana = await cadastrar('Ana');
   const beto = await cadastrar('Beto');
   const sa = await conectado(cliente(ana.token));
@@ -556,10 +582,10 @@ test('@debate coloca Gemini e Llama para conversar em turnos, com intervalo, vis
   assert.match(final.motivo, /Fim do debate/);
 
   const falas = sb.recebidas.filter((m) => m.debate === ack.mensagem._id);
-  assert.deepEqual(falas.map((m) => m.bot), ['gemini', 'llama', 'gemini', 'llama']);
-  assert.deepEqual([...new Set(falas.map((m) => m.nomeAutor))], ['🤖 Moderador Gemini', '🦙 Llama (Groq)']);
+  assert.deepEqual(falas.map((m) => m.bot), ['gemini', 'mistral', 'gemini', 'mistral']);
+  assert.deepEqual([...new Set(falas.map((m) => m.nomeAutor))], ['🤖 Moderador Gemini', '🌀 Mistral']);
   // O prefixo "Nome:" e as mencoes com @ sao removidos (evita loop e poluicao)
-  assert.ok(falas.every((m) => !/^(gemini|llama):/i.test(m.texto) && !m.texto.includes('@')), JSON.stringify(falas.map((m) => m.texto)));
+  assert.ok(falas.every((m) => !/^(gemini|mistral):/i.test(m.texto) && !m.texto.includes('@')), JSON.stringify(falas.map((m) => m.texto)));
   assert.equal(sa.recebidas.filter((m) => m.debate === ack.mensagem._id).length, 4, 'Ana tambem viu tudo');
 
   // Ritmo: entre uma fala e outra passa pelo menos o intervalo escolhido
@@ -568,27 +594,28 @@ test('@debate coloca Gemini e Llama para conversar em turnos, com intervalo, vis
 
   // Cada IA chamada 2 vezes; as falas do Gemini nao geram respostas extras (@bot foi limpo)
   assert.equal(chamadasGemini.length, 2);
-  assert.equal(chamadasGroq.length, 2);
+  assert.equal(chamadasMistral.length, 2);
 
-  // O Llama recebe a fala do Gemini como 'user' e a instrucao do debate como 'system'
-  const msgsLlama = chamadasGroq[1].corpo.messages;
-  assert.equal(msgsLlama[0].role, 'system');
-  assert.match(msgsLlama[0].content, /Voce e Llama/);
-  assert.ok(msgsLlama.some((m) => m.role === 'assistant'));
-  assert.equal(msgsLlama.at(-1).role, 'user');
-  assert.match(msgsLlama.at(-1).content, /^Gemini: /);
-  assert.equal(chamadasGroq[0].headers.Authorization, 'Bearer chave-groq-falsa');
+  // O Mistral recebe a fala do Gemini como 'user' e a instrucao do debate como 'system'
+  const msgsMistral = chamadasMistral[1].corpo.messages;
+  assert.equal(msgsMistral[0].role, 'system');
+  assert.match(msgsMistral[0].content, /Voce e Mistral/);
+  assert.ok(msgsMistral.some((m) => m.role === 'assistant'));
+  assert.equal(msgsMistral.at(-1).role, 'user');
+  assert.match(msgsMistral.at(-1).content, /^Gemini: /);
+  assert.equal(chamadasMistral[0].headers.Authorization, 'Bearer chave-mistral-falsa');
+  assert.equal(chamadasMistral[0].corpo.model, 'mistral-small-latest');
 
-  // O Gemini recebe a fala do Llama como 'user' e as proprias como 'model'
+  // O Gemini recebe a fala do Mistral como 'user' e as proprias como 'model'
   const contentsGemini = chamadasGemini[1].contents;
   assert.deepEqual(contentsGemini.map((c) => c.role), ['user', 'model', 'user']);
-  assert.match(contentsGemini.at(-1).parts[0].text, /^Llama: /);
+  assert.match(contentsGemini.at(-1).parts[0].text, /^Mistral: /);
 
   const salvas = await Mensagem.countDocuments({ debate: ack.mensagem._id });
   assert.equal(salvas, 4);
 });
 
-test('debate: um por vez, @parar e o botao encerram, e sem GROQ_API_KEY ele nao comeca', async () => {
+test('debate: um por vez, @parar e o botao encerram, e sem GEMINI_API_KEY ele nao comeca', async () => {
   const ana = await cadastrar('Ana');
   const beto = await cadastrar('Beto');
   const sa = await conectado(cliente(ana.token));
@@ -621,15 +648,15 @@ test('debate: um por vez, @parar e o botao encerram, e sem GROQ_API_KEY ele nao 
   assert.match((await fim2).motivo, /Ana parou o debate/);
   assert.equal((await sa.timeout(3000).emitWithAck('pararDebate')).ok, false);
 
-  // Sem chave da Groq
-  const chave = process.env.GROQ_API_KEY;
-  process.env.GROQ_API_KEY = '';
+  // Sem chave do Gemini nao ha debate
+  const chave = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = '';
   try {
     const semChave = await emitir(sa, { texto: '@debate sem chave', clientId: novoId() });
     assert.equal(semChave.ok, false);
-    assert.match(semChave.erro, /GROQ_API_KEY/);
+    assert.match(semChave.erro, /GEMINI_API_KEY/);
   } finally {
-    process.env.GROQ_API_KEY = chave;
+    process.env.GEMINI_API_KEY = chave;
   }
 
   const semTema = await emitir(sa, { texto: '@debate', clientId: novoId() });
@@ -672,7 +699,7 @@ test('Gemini com "high demand" (503): tenta de novo e o debate continua', async 
   assert.equal(ack.ok, true, ack.erro);
   const final = await fim;
   assert.match(final.motivo, /Fim do debate/);
-  assert.deepEqual(sa.recebidas.filter((m) => m.debate).map((m) => m.bot), ['gemini', 'llama']);
+  assert.deepEqual(sa.recebidas.filter((m) => m.debate).map((m) => m.bot), ['gemini', 'mistral']);
   assert.ok(avisos.some((a) => /sobrecarregado/.test(a)), 'a sala foi avisada da nova tentativa');
   assert.equal(chamadasGemini.length, 5);
 });
@@ -696,4 +723,56 @@ test('erro definitivo (ex.: chave invalida) interrompe o debate na hora, sem ins
   const final = await fim;
   assert.match(final.motivo, /Debate interrompido.*API key not valid/);
   assert.equal(chamadasGemini.length, 1);
+});
+
+test('sem MISTRAL_API_KEY o adversario e o Gemini 2, com chave e modelo proprios', async () => {
+  const chaveMistral = process.env.MISTRAL_API_KEY;
+  process.env.MISTRAL_API_KEY = '';
+  process.env.GEMINI_API_KEY_2 = 'segunda-chave-gemini';
+  process.env.GEMINI_MODEL_2 = 'gemini-modelo-dois';
+  try {
+    const ana = await cadastrar('Ana');
+    const sa = await conectado(cliente(ana.token));
+    const fim = esperarFimDebate(sa);
+    respostaGemini = 'Gemini 2: discordo com ironia. @bot';
+    const ack = await emitir(sa, { texto: '@debate gemini contra gemini', clientId: novoId(), debate: { turnos: 4, intervalo: 0 } });
+    assert.equal(ack.ok, true, ack.erro);
+    await fim;
+
+    const falas = sa.recebidas.filter((m) => m.debate === ack.mensagem._id);
+    assert.deepEqual(falas.map((m) => m.bot), ['gemini', 'gemini2', 'gemini', 'gemini2']);
+    assert.deepEqual([...new Set(falas.map((m) => m.nomeAutor))], ['🤖 Moderador Gemini', '✨ Gemini 2']);
+    assert.ok(falas.every((m) => !/^gemini 2:/i.test(m.texto) && !m.texto.includes('@')));
+    assert.equal(chamadasMistral.length, 0);
+
+    // Gemini 1 usa a chave/modelo principais; Gemini 2 usa os proprios
+    assert.ok(!urlsGemini[0].includes('gemini-modelo-dois') && urlsGemini[0].includes('key=chave-falsa'));
+    assert.ok(urlsGemini[1].includes('/gemini-modelo-dois:') && urlsGemini[1].includes('key=segunda-chave-gemini'));
+    // Personalidades e papeis diferentes
+    assert.match(chamadasGemini[0].systemInstruction.parts[0].text, /Voce e Gemini, .*chamada Gemini 2/);
+    assert.match(chamadasGemini[1].systemInstruction.parts[0].text, /Voce e Gemini 2, .*chamada Gemini,[\s\S]*ironica/);
+    // O Gemini 2 ve as falas do Gemini 1 como de outro participante
+    assert.match(chamadasGemini[1].contents.at(-1).parts[0].text, /^Gemini: discordo/m);
+  } finally {
+    process.env.MISTRAL_API_KEY = chaveMistral;
+    delete process.env.GEMINI_API_KEY_2;
+    delete process.env.GEMINI_MODEL_2;
+  }
+});
+
+// Deve ficar por ultimo: troca o modelo do Mistral em uso para o resto do processo
+test('modelo do Mistral invalido: o servidor escolhe sozinho um modelo disponivel', async () => {
+  modelosMistralAposentados.add('mistral-small-latest');
+  const ana = await cadastrar('Ana');
+  const sa = await conectado(cliente(ana.token));
+  const fim = esperarFimDebate(sa);
+  const ack = await emitir(sa, { texto: '@debate modelo aposentado', clientId: novoId(), debate: { turnos: 2, intervalo: 0 } });
+  assert.equal(ack.ok, true, ack.erro);
+  const final = await fim;
+  assert.match(final.motivo, /Fim do debate/);
+
+  assert.equal(consultasModelosMistral, 1);
+  // Prefere um "small"; ignora embed e moderation
+  assert.deepEqual(chamadasMistral.map((c) => c.corpo.model), ['mistral-small-latest', 'mistral-small-2599']);
+  assert.ok(sa.recebidas.some((m) => m.debate && m.bot === 'mistral'));
 });
