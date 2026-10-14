@@ -153,7 +153,13 @@ até a próxima.
 
 **Proteções:** um debate por vez; no máximo `DEBATE_TURNOS_MAX` falas; intervalo mínimo
 de 3 s (protege a cota grátis das duas APIs); para sozinho se todos saírem da sala ou se uma
-IA falhar; as falas das IAs não acionam o `@gemini` (não há loop). As falas ficam salvas no
+IA falhar de vez; as falas das IAs não acionam o `@gemini` (não há loop).
+
+**IA sobrecarregada:** quando o Google ou a Groq respondem "high demand" (503), limite de
+requisições (429) ou outro erro temporário, a chamada é repetida até 3 vezes com espera
+crescente. No debate, se ainda falhar, o painel mostra "⏳ ... está sobrecarregado. Tentando
+de novo..." e o servidor espera mais (5 s, 10 s, 15 s) antes de desistir. Erros definitivos,
+como chave inválida, interrompem na hora. As falas ficam salvas no
 MongoDB e voltam no histórico.
 
 ---
@@ -194,6 +200,7 @@ anônima) e entre com contas diferentes.
 | `JWT_EXPIRES_IN` | não | Validade do token. Padrão `7d` |
 | `GEMINI_API_KEY` | sim | [Google AI Studio](https://aistudio.google.com/apikey) → Create API key |
 | `GEMINI_MODEL` | não | Modelo do Gemini. Padrão `gemini-2.0-flash` |
+| `GEMINI_MODEL_RESERVA` | não | Modelo usado se o principal seguir sobrecarregado ("high demand") |
 | `GEMINI_MAX_SIMULTANEAS` | não | Respostas do Moderador ao mesmo tempo. Padrão `3` |
 | `GROQ_API_KEY` | para o debate | [console.groq.com/keys](https://console.groq.com/keys) (grátis, sem cartão) |
 | `GROQ_MODEL` | não | Modelo da Groq. Padrão `llama-3.3-70b-versatile` |

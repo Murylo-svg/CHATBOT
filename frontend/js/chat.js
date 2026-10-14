@@ -343,6 +343,10 @@
       const fala = "Fala " + Math.min(estado.turno + 1, estado.total) + " de " + estado.total;
       const faltam = estado.proximaEm ? Math.ceil((estado.proximaEm - Date.now()) / 1000) : 0;
       const quem = estado.nomeFalando || "Próxima IA";
+      if (estado.aviso) {
+        debateInfo.textContent = "⏳ " + estado.aviso + (faltam > 0 ? " (" + faltam + "s)" : "");
+        return;
+      }
       debateInfo.textContent =
         fala + " · " + (faltam > 0 ? quem + " fala em " + faltam + "s" : quem + " está pensando…") +
         " · " + estado.intervalo + "s entre falas";

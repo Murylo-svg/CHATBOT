@@ -25,6 +25,8 @@ process.env.GEMINI_API_KEY = 'chave-falsa';
 process.env.CORS_ORIGIN = 'https://meu-app.vercel.app';
 process.env.GROQ_API_KEY = 'chave-groq-falsa';
 process.env.DEBATE_INTERVALO_MIN_SEGUNDOS = '0'; // testes rapidos
+process.env.API_ESPERA_BASE_MS = '10';
+process.env.DEBATE_ESPERA_ERRO_MS = '50';
 
 // ---------- Simulacoes (antes de carregar o servidor) ----------
 const cloudinary = require('../services/cloudinary');
@@ -35,11 +37,19 @@ cloudinary.enviarImagem = async (buffer, usuarioId) => {
 };
 
 const chamadasGemini = [];
+const falhasGemini = []; // respostas de erro a devolver antes das proximas respostas normais
 let respostaGemini = 'Ola! Eu sou o moderador.';
 const fetchOriginal = global.fetch;
 global.fetch = async (url, opcoes) => {
   if (String(url).includes('generativelanguage.googleapis.com')) {
     chamadasGemini.push(JSON.parse(opcoes.body));
+    const falha = falhasGemini.shift();
+    if (falha) {
+      return new Response(JSON.stringify({ error: { code: falha.status, message: falha.mensagem } }), {
+        status: falha.status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     await new Promise((r) => setTimeout(r, 30));
     return new Response(
       JSON.stringify({ candidates: [{ content: { role: 'model', parts: [{ text: respostaGemini }] } }] }),
@@ -162,6 +172,7 @@ beforeEach(async () => {
   await pausa(50);
   chamadasGemini.length = 0;
   chamadasGroq.length = 0;
+  falhasGemini.length = 0;
   respostaGemini = 'Ola! Eu sou o moderador.';
 });
 
@@ -644,4 +655,45 @@ test('debate para sozinho quando todo mundo sai da sala', async () => {
   const sb = await conectado(cliente(ana.token));
   const novo = await emitir(sb, { texto: '@debate novo tema', clientId: novoId(), debate: { turnos: 2, intervalo: 0 } });
   assert.equal(novo.ok, true, novo.erro);
+});
+
+test('Gemini com "high demand" (503): tenta de novo e o debate continua', async () => {
+  const ana = await cadastrar('Ana');
+  const sa = await conectado(cliente(ana.token));
+  const avisos = [];
+  sa.on('debateEstado', (e) => e.aviso && avisos.push(e.aviso));
+  const fim = esperarFimDebate(sa);
+
+  // 4 falhas: 3 consumidas pelas tentativas rapidas da API + 1 que forca a espera extra do debate
+  const alta = { status: 503, mensagem: 'This model is currently experiencing high demand. Please try again later.' };
+  falhasGemini.push(alta, alta, alta, alta);
+
+  const ack = await emitir(sa, { texto: '@debate sol ou chuva', clientId: novoId(), debate: { turnos: 2, intervalo: 0 } });
+  assert.equal(ack.ok, true, ack.erro);
+  const final = await fim;
+  assert.match(final.motivo, /Fim do debate/);
+  assert.deepEqual(sa.recebidas.filter((m) => m.debate).map((m) => m.bot), ['gemini', 'llama']);
+  assert.ok(avisos.some((a) => /sobrecarregado/.test(a)), 'a sala foi avisada da nova tentativa');
+  assert.equal(chamadasGemini.length, 5);
+});
+
+test('@gemini tambem tenta de novo quando o modelo esta sobrecarregado', async () => {
+  const ana = await cadastrar('Ana');
+  const sa = await conectado(cliente(ana.token));
+  falhasGemini.push({ status: 503, mensagem: 'high demand' }, { status: 429, mensagem: 'Resource exhausted' });
+  await emitir(sa, { texto: '@gemini oi', clientId: novoId() });
+  await esperar(() => sa.recebidas.some((m) => m.autor === 'model'));
+  assert.equal(chamadasGemini.length, 3);
+});
+
+test('erro definitivo (ex.: chave invalida) interrompe o debate na hora, sem insistir', async () => {
+  const ana = await cadastrar('Ana');
+  const sa = await conectado(cliente(ana.token));
+  const fim = esperarFimDebate(sa);
+  falhasGemini.push({ status: 400, mensagem: 'API key not valid' });
+  const ack = await emitir(sa, { texto: '@debate chave ruim', clientId: novoId(), debate: { turnos: 2, intervalo: 0 } });
+  assert.equal(ack.ok, true);
+  const final = await fim;
+  assert.match(final.motivo, /Debate interrompido.*API key not valid/);
+  assert.equal(chamadasGemini.length, 1);
 });

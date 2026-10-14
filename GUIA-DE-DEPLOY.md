@@ -238,6 +238,12 @@ Faltou a variável `GROQ_API_KEY` no Render (ou o serviço não reiniciou depois
 A Groq troca os modelos de tempos em tempos. Veja os atuais em
 console.groq.com/docs/models e ajuste `GROQ_MODEL` no Render.
 
+**"This model is currently experiencing high demand"**
+O modelo do Gemini está sobrecarregado no Google (erro 503). O servidor já tenta de novo
+sozinho. Se acontecer sempre, troque `GEMINI_MODEL` por um modelo menos disputado ou
+defina `GEMINI_MODEL_RESERVA` com um segundo modelo (veja os nomes em
+ai.google.dev/gemini-api/docs/models).
+
 **`Gemini: API key not valid`**
 A chave não foi copiada inteira, ou a API Generative Language não está ativa no
 projeto do Google Cloud vinculado.
