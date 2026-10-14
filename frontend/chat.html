@@ -29,10 +29,19 @@
         </div>
       </div>
       <div class="acoes">
+        <button type="button" class="botao-fraco" id="abrir-debate" title="Colocar o Gemini e o Llama para debater">🎭 Debate de IAs</button>
         <button type="button" class="botao-fraco" id="limpar">Limpar histórico</button>
         <button type="button" class="botao-fraco" id="sair">Sair</button>
       </div>
     </header>
+
+    <div class="painel-debate" id="painel-debate" hidden>
+      <div>
+        <strong>🎭 Debate:</strong> <span id="debate-tema"></span>
+        <div class="debate-info" id="debate-info" aria-live="polite"></div>
+      </div>
+      <button type="button" class="botao-fraco" id="parar-debate">Parar</button>
+    </div>
 
     <div class="conversa" id="conversa" aria-live="polite"></div>
 
@@ -53,6 +62,39 @@
       </div>
     </footer>
   </div>
+
+  <dialog class="dialogo-debate" id="dialogo-debate">
+    <form method="dialog" id="form-debate">
+      <h2>Debate de IAs</h2>
+      <p>🤖 <strong>Gemini</strong> (Google) defende um lado e 🦙 <strong>Llama</strong> (Meta, via Groq) o outro. Todos na sala assistem.</p>
+      <label for="debate-tema-campo">Tema</label>
+      <input id="debate-tema-campo" maxlength="200" required placeholder="Ex.: Pizza com abacaxi deveria ser proibida?" />
+      <div class="linha-campos">
+        <div>
+          <label for="debate-turnos">Falas no total</label>
+          <select id="debate-turnos">
+            <option value="4">4 (2 de cada)</option>
+            <option value="6">6 (3 de cada)</option>
+            <option value="8" selected>8 (4 de cada)</option>
+            <option value="12">12 (6 de cada)</option>
+          </select>
+        </div>
+        <div>
+          <label for="debate-intervalo">Tempo entre falas</label>
+          <select id="debate-intervalo">
+            <option value="5">5 segundos</option>
+            <option value="8" selected>8 segundos</option>
+            <option value="12">12 segundos</option>
+            <option value="20">20 segundos</option>
+          </select>
+        </div>
+      </div>
+      <div class="botoes-dialogo">
+        <button type="button" class="botao-fraco" id="cancelar-debate">Cancelar</button>
+        <button type="submit" class="botao-principal" id="iniciar-debate">Começar debate</button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- Cliente Socket.io 4.8.4 (mesma versao do servidor), servido junto com o front -->
   <script src="js/vendor/socket.io.min.js"></script>
