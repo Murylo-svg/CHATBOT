@@ -1,6 +1,26 @@
 const jwt = require('jsonwebtoken');
 
 /**
+ * Valida um JWT e devolve o payload ({ id, nome, exp, ... }).
+ * Lanca erro (TokenExpiredError / JsonWebTokenError) se for invalido.
+ * Usado pelo middleware HTTP abaixo e pelo handshake do Socket.io.
+ */
+function validarToken(token) {
+  if (!token || typeof token !== 'string') {
+    const erro = new Error('Token nao enviado.');
+    erro.name = 'JsonWebTokenError';
+    throw erro;
+  }
+  const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+  if (!payload || !payload.id) {
+    const erro = new Error('Token sem identificacao de usuario.');
+    erro.name = 'JsonWebTokenError';
+    throw erro;
+  }
+  return payload;
+}
+
+/**
  * Middleware de autenticacao.
  * Espera o header: Authorization: Bearer <token>
  * Se o token for valido, injeta req.usuarioId e segue.
@@ -15,7 +35,7 @@ function verificarToken(req, res, next) {
   const token = header.slice(7).trim();
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload = validarToken(token);
     req.usuarioId = payload.id;
     req.usuarioNome = payload.nome;
     return next();
@@ -29,3 +49,4 @@ function verificarToken(req, res, next) {
 }
 
 module.exports = verificarToken;
+module.exports.validarToken = validarToken;

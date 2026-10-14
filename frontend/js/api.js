@@ -1,12 +1,26 @@
 /* Camada de acesso à API: guarda o token e trata erros de sessão. */
 
+// Chave do JWT no localStorage (a mesma lida pelo Socket.io no handshake)
+const CHAVE_TOKEN = "token_saas";
+
+// Migra sessões antigas, salvas antes da Sprint 7 na chave "token"
+(function migrarTokenAntigo() {
+  try {
+    const antigo = localStorage.getItem("token");
+    if (antigo && !localStorage.getItem(CHAVE_TOKEN)) localStorage.setItem(CHAVE_TOKEN, antigo);
+    localStorage.removeItem("token");
+  } catch {
+    /* localStorage indisponível */
+  }
+})();
+
 const Sessao = {
   salvar(token, usuario) {
-    localStorage.setItem("token", token);
+    localStorage.setItem(CHAVE_TOKEN, token);
     localStorage.setItem("usuario", JSON.stringify(usuario));
   },
   token() {
-    return localStorage.getItem("token");
+    return localStorage.getItem(CHAVE_TOKEN);
   },
   usuario() {
     try {
@@ -16,11 +30,11 @@ const Sessao = {
     }
   },
   limpar() {
-    localStorage.removeItem("token");
+    localStorage.removeItem(CHAVE_TOKEN);
     localStorage.removeItem("usuario");
   },
   logada() {
-    return Boolean(localStorage.getItem("token"));
+    return Boolean(localStorage.getItem(CHAVE_TOKEN));
   },
 };
 

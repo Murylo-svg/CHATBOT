@@ -5,6 +5,7 @@ const Mensagem = require('../models/Message');
 const verificarToken = require('../middleware/auth');
 const { enviarImagem } = require('../services/cloudinary');
 const { conversar } = require('../services/gemini');
+const salaPublica = require('../services/salaPublica');
 
 const router = express.Router();
 
@@ -25,12 +26,30 @@ const upload = multer({
 
 const LIMITE_HISTORICO = 20; // ultimas N mensagens enviadas como contexto
 
+// Conversa privada = mensagens sem sala (as da sala publica tem sala: 'publica')
+const PRIVADA = { sala: null };
+
+/**
+ * GET /api/chat/sala?limite=100
+ * Historico inicial da sala publica em tempo real (mesmo formato do evento
+ * `mensagemRecebida`, com _id para o front descartar repetidas).
+ */
+router.get('/sala', async (req, res, next) => {
+  try {
+    const mensagens = await salaPublica.buscarHistorico(req.query.limite);
+    return res.json({ sala: salaPublica.SALA, mensagens });
+  } catch (erro) {
+    return next(erro);
+  }
+});
+
 /**
  * GET /api/chat/historico
+ * Conversa privada com o assistente (endpoint REST original).
  */
 router.get('/historico', async (req, res, next) => {
   try {
-    const mensagens = await Mensagem.find({ usuario: req.usuarioId })
+    const mensagens = await Mensagem.find({ usuario: req.usuarioId, ...PRIVADA })
       .sort({ createdAt: 1 })
       .limit(200)
       .lean();
@@ -43,14 +62,25 @@ router.get('/historico', async (req, res, next) => {
 
 /**
  * DELETE /api/chat/historico
- * Apaga de verdade no banco, nao so na tela.
+ * Apaga de verdade no banco, nao so na tela: a conversa privada, as mensagens
+ * que o usuario enviou na sala publica e as respostas do Gemini a ele.
+ * Quem estiver conectado na sala recebe `mensagensRemovidas` na hora.
  */
 router.delete('/historico', async (req, res, next) => {
   try {
+    const daSala = await Mensagem.find({ usuario: req.usuarioId, sala: salaPublica.SALA })
+      .select('_id')
+      .lean();
     const resultado = await Mensagem.deleteMany({ usuario: req.usuarioId });
+
+    const ids = daSala.map((m) => String(m._id));
+    const io = req.app.get('io');
+    if (io && ids.length) io.emit('mensagensRemovidas', { ids });
+
     return res.json({
       mensagem: 'Historico apagado.',
       removidas: resultado.deletedCount,
+      removidasDaSala: ids.length,
     });
   } catch (erro) {
     return next(erro);
@@ -77,7 +107,7 @@ router.post('/', upload.single('imagem'), async (req, res, next) => {
     }
 
     // ---------- 2. Monta o historico no formato do Gemini ----------
-    const anteriores = await Mensagem.find({ usuario: req.usuarioId })
+    const anteriores = await Mensagem.find({ usuario: req.usuarioId, ...PRIVADA })
       .sort({ createdAt: -1 })
       .limit(LIMITE_HISTORICO)
       .lean();

@@ -1,4 +1,4 @@
-/* Tela de chat: histórico, envio de mensagens e upload de imagem. */
+/* Tela de chat: sala pública em tempo real (Socket.io), histórico, imagens e Moderador Gemini. */
 
 (function () {
   // ---------- Guarda de rota ----------
@@ -19,33 +19,98 @@
   const limpar = document.getElementById("limpar");
   const sair = document.getElementById("sair");
   const quem = document.getElementById("quem");
+  const conexao = document.getElementById("conexao");
+  const online = document.getElementById("online");
+  const onlineTotal = document.getElementById("online-total");
+  const avisoChat = document.getElementById("aviso-chat");
+
+  const LIMITE_TEXTO = 2000;
+  const LIMITE_IMAGEM = 5 * 1024 * 1024;
+  const TEMPO_ACK_MS = 30000; // upload de imagem + gravação no banco
 
   const usuario = Sessao.usuario();
   quem.textContent = usuario ? usuario.nome + " · " + usuario.email : "";
 
   let imagemSelecionada = null;
   let enviando = false;
+  let historicoPronto = false;
+  let filaAoVivo = []; // mensagens que chegaram enquanto o histórico carregava
+  let socket = null;
+
+  const renderizadas = new Map(); // _id -> elemento (impede duplicadas)
+  const pendentes = new Map(); // clientId -> { elemento, payload }
+
+  // ---------- Avisos e estado da conexão ----------
+  let timerAviso = null;
+  function avisar(mensagem, tipo = "erro", duracao = 6000) {
+    avisoChat.textContent = mensagem;
+    avisoChat.className = "aviso-chat " + tipo;
+    avisoChat.hidden = false;
+    clearTimeout(timerAviso);
+    if (duracao) timerAviso = setTimeout(() => (avisoChat.hidden = true), duracao);
+  }
+
+  function estadoConexao(classe, rotulo) {
+    conexao.className = "conexao " + classe;
+    conexao.textContent = rotulo;
+    atualizarBotao();
+  }
+
+  function atualizarBotao() {
+    enviar.disabled = enviando || !socket || !socket.connected;
+  }
+
+  function encerrarSessao(motivo) {
+    Sessao.limpar();
+    sessionStorage.setItem("motivoSaida", motivo || "Sessão expirada. Faça login novamente.");
+    if (socket) socket.disconnect();
+    window.location.replace("index.html");
+  }
 
   // ---------- Desenho das mensagens ----------
   function estadoVazio() {
     conversa.innerHTML =
       '<div class="vazio">' +
-      "<h2>Comece a conversa</h2>" +
-      "<p>Diga seu nome e pergunte depois se ele lembra. Envie a foto de uma fruta e pergunte a cor. Ou pergunte a temperatura em Tóquio agora.</p>" +
+      "<h2>A sala está quieta</h2>" +
+      "<p>Mande um oi para quem estiver online. Escreva <strong>@gemini</strong> ou <strong>@bot</strong> para chamar o Moderador Gemini: ele vê imagens, lembra da conversa e consulta o clima em tempo real.</p>" +
       "</div>";
   }
 
-  function desenhar(mensagem) {
-    const vazio = conversa.querySelector(".vazio");
-    if (vazio) vazio.remove();
+  function ehMinha(mensagem) {
+    return mensagem.autor === "user" && usuario && String(mensagem.usuario) === String(usuario._id);
+  }
 
+  function urlSegura(url) {
+    return typeof url === "string" && (url.startsWith("https://") || url.startsWith("blob:"));
+  }
+
+  function formatarHora(data) {
+    const d = data ? new Date(data) : new Date();
+    return isNaN(d) ? "" : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function criarBalao(mensagem) {
+    const bot = mensagem.autor === "model";
     const balao = document.createElement("div");
-    balao.className = "balao " + (mensagem.autor === "user" ? "de-usuario" : "de-ia");
+    // de-usuario = minha | de-outro = outra pessoa | de-ia de-bot = Moderador Gemini
+    balao.className = "balao " + (bot ? "de-ia de-bot" : ehMinha(mensagem) ? "de-usuario" : "de-outro");
 
-    if (mensagem.imagemUrl) {
+    // Nome sempre vindo do servidor (nomeAutor), nunca digitado pelo cliente
+    const cabecalho = document.createElement("div");
+    cabecalho.className = "remetente";
+    const nome = document.createElement("span");
+    nome.className = "nome";
+    nome.textContent = ehMinha(mensagem) ? "Você" : mensagem.nomeAutor || "Usuário";
+    const hora = document.createElement("span");
+    hora.className = "hora";
+    hora.textContent = formatarHora(mensagem.createdAt);
+    cabecalho.append(nome, hora);
+    balao.appendChild(cabecalho);
+
+    if (urlSegura(mensagem.imagemUrl)) {
       const img = document.createElement("img");
       img.src = mensagem.imagemUrl;
-      img.alt = "Imagem enviada";
+      img.alt = "Imagem enviada por " + (mensagem.nomeAutor || "usuário");
       img.loading = "lazy";
       balao.appendChild(img);
     }
@@ -64,41 +129,184 @@
       balao.appendChild(etiqueta);
     }
 
-    conversa.appendChild(balao);
-    descer();
     return balao;
+  }
+
+  function pertoDoFim() {
+    return conversa.scrollHeight - conversa.scrollTop - conversa.clientHeight < 120;
   }
 
   function descer() {
     conversa.scrollTop = conversa.scrollHeight;
   }
 
-  function mostrarDigitando() {
-    const bloco = document.createElement("div");
+  function inserir(elemento, forcarRolagem) {
+    const vazio = conversa.querySelector(".vazio");
+    if (vazio) vazio.remove();
+    const rolar = forcarRolagem || pertoDoFim();
+    // O indicador "digitando" fica sempre por último
+    const digitando = document.getElementById("digitando");
+    conversa.insertBefore(elemento, digitando || null);
+    if (rolar) descer();
+  }
+
+  /** Adiciona uma mensagem confirmada pelo servidor, sem nunca repetir. */
+  function adicionar(mensagem) {
+    if (!mensagem || !mensagem._id || renderizadas.has(mensagem._id)) return;
+
+    const balao = criarBalao(mensagem);
+    balao.dataset.id = mensagem._id;
+    renderizadas.set(mensagem._id, balao);
+
+    // Era uma mensagem minha mostrada de forma otimista? Troca pelo balão definitivo.
+    const pendente = mensagem.clientId && pendentes.get(mensagem.clientId);
+    if (pendente) {
+      pendentes.delete(mensagem.clientId);
+      if (pendente.elemento.isConnected) {
+        pendente.elemento.replaceWith(balao);
+        if (pendente.urlLocal) URL.revokeObjectURL(pendente.urlLocal);
+        return;
+      }
+    }
+    inserir(balao, ehMinha(mensagem));
+  }
+
+  function remover(ids) {
+    ids.forEach((id) => {
+      const elemento = renderizadas.get(id);
+      if (elemento) elemento.remove();
+      renderizadas.delete(id);
+    });
+    if (!conversa.querySelector(".balao")) estadoVazio();
+  }
+
+  function mostrarDigitando(ativo) {
+    let bloco = document.getElementById("digitando");
+    if (!ativo) {
+      if (bloco) bloco.remove();
+      return;
+    }
+    if (bloco) return;
+    bloco = document.createElement("div");
     bloco.className = "digitando";
     bloco.id = "digitando";
-    bloco.innerHTML = "<span></span><span></span><span></span>";
+    bloco.title = "🤖 Moderador Gemini está respondendo";
+    bloco.innerHTML = '<em>🤖 Moderador Gemini</em><span></span><span></span><span></span>';
+    const rolar = pertoDoFim();
     conversa.appendChild(bloco);
-    descer();
+    if (rolar) descer();
   }
 
-  function esconderDigitando() {
-    const bloco = document.getElementById("digitando");
-    if (bloco) bloco.remove();
-  }
-
-  // ---------- Carregar histórico ----------
-  async function carregar() {
+  // ---------- Histórico inicial (REST) ----------
+  // Também roda a cada reconexão: traz o que chegou enquanto estávamos fora.
+  async function sincronizarHistorico() {
     try {
-      const dados = await chamarApi("/api/chat/historico");
-      if (!dados.mensagens.length) return estadoVazio();
-      conversa.innerHTML = "";
-      dados.mensagens.forEach(desenhar);
+      const dados = await chamarApi("/api/chat/sala");
+      if (!historicoPronto) {
+        conversa.innerHTML = "";
+        renderizadas.clear();
+      }
+      dados.mensagens.forEach(adicionar);
+      historicoPronto = true;
+
+      filaAoVivo.forEach(adicionar);
+      filaAoVivo = [];
+
+      if (!conversa.querySelector(".balao")) estadoVazio();
+      descer();
     } catch (erro) {
-      conversa.innerHTML =
-        '<div class="vazio"><h2>Não foi possível carregar</h2><p>' + erro.message + "</p></div>";
+      if (!historicoPronto) {
+        conversa.innerHTML = "";
+        const bloco = document.createElement("div");
+        bloco.className = "vazio";
+        const titulo = document.createElement("h2");
+        titulo.textContent = "Não foi possível carregar";
+        const p = document.createElement("p");
+        p.textContent = erro.message;
+        bloco.append(titulo, p);
+        conversa.appendChild(bloco);
+      } else {
+        avisar("Não foi possível atualizar o histórico: " + erro.message);
+      }
     }
   }
+
+  // ---------- Conexão em tempo real ----------
+  if (typeof io !== "function") {
+    estadoConexao("erro", "Sem tempo real");
+    avisar("Não foi possível carregar o cliente Socket.io. Recarregue a página.", "erro", 0);
+    sincronizarHistorico();
+    return;
+  }
+
+  socket = io(SOCKET_URL, {
+    // Função: a cada (re)conexão lê o token atual do localStorage (chave token_saas)
+    auth: (cb) => cb({ token: Sessao.token() }),
+    transports: ["websocket", "polling"],
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 10000,
+  });
+
+  let tentativaManual = null;
+
+  socket.on("connect", () => {
+    clearTimeout(tentativaManual);
+    estadoConexao("conectado", "Conectado");
+    avisoChat.hidden = true;
+    sincronizarHistorico();
+    reenviarPendentes();
+  });
+
+  socket.on("connect_error", (erro) => {
+    const codigo = erro && erro.data && erro.data.codigo;
+    if (codigo === "TOKEN_INVALIDO" || codigo === "TOKEN_EXPIRADO" || codigo === "USUARIO_INEXISTENTE") {
+      encerrarSessao(erro.message);
+      return;
+    }
+    estadoConexao("erro", "Sem conexão");
+    // Recusa do middleware desliga a reconexão automática: tentamos de novo manualmente
+    if (!socket.active) {
+      clearTimeout(tentativaManual);
+      tentativaManual = setTimeout(() => socket.connect(), 5000);
+    }
+  });
+
+  socket.on("disconnect", (motivo) => {
+    if (motivo === "io client disconnect") return;
+    estadoConexao("reconectando", "Reconectando…");
+    mostrarDigitando(false);
+    if (motivo === "io server disconnect") {
+      // O servidor derrubou (ex.: token vencido). Tenta uma vez; o handshake decide.
+      socket.connect();
+    }
+  });
+
+  socket.io.on("reconnect_attempt", (n) => estadoConexao("reconectando", "Reconectando… (" + n + ")"));
+
+  socket.on("mensagemRecebida", (mensagem) => {
+    if (!historicoPronto) {
+      filaAoVivo.push(mensagem);
+      return;
+    }
+    adicionar(mensagem);
+  });
+
+  socket.on("mensagensRemovidas", (dados) => {
+    if (dados && Array.isArray(dados.ids)) remover(dados.ids);
+  });
+
+  socket.on("usuariosOnline", (dados) => {
+    onlineTotal.textContent = dados.total;
+    online.title = dados.nomes && dados.nomes.length
+      ? "Online agora: " + dados.nomes.join(", ") + " (" + dados.conexoes + " conexões)"
+      : "Ninguém online";
+  });
+
+  socket.on("moderadorDigitando", (dados) => mostrarDigitando(Boolean(dados && dados.ativo)));
+
+  socket.on("erroChat", (dados) => avisar((dados && dados.erro) || "Erro no chat."));
+
+  socket.on("sessaoExpirada", (dados) => encerrarSessao(dados && dados.erro));
 
   // ---------- Anexo de imagem ----------
   anexar.addEventListener("click", () => arquivo.click());
@@ -107,8 +315,13 @@
     const item = arquivo.files[0];
     if (!item) return;
 
-    if (item.size > 5 * 1024 * 1024) {
-      alert("A imagem precisa ter no máximo 5 MB.");
+    if (!item.type.startsWith("image/")) {
+      avisar("Apenas arquivos de imagem são aceitos.");
+      arquivo.value = "";
+      return;
+    }
+    if (item.size > LIMITE_IMAGEM) {
+      avisar("A imagem precisa ter no máximo 5 MB.");
       arquivo.value = "";
       return;
     }
@@ -128,41 +341,124 @@
   }
 
   // ---------- Envio ----------
+  function novoClientId() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+  }
+
+  function marcarFalha(clientId, mensagemErro) {
+    const pendente = pendentes.get(clientId);
+    if (!pendente) return;
+    const balao = pendente.elemento;
+    balao.classList.add("falhou");
+    balao.classList.remove("enviando");
+
+    let rodape = balao.querySelector(".falha");
+    if (!rodape) {
+      rodape = document.createElement("div");
+      rodape.className = "falha";
+      balao.appendChild(rodape);
+    }
+    rodape.textContent = "Não enviada: " + mensagemErro + " ";
+
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.textContent = "Tentar de novo";
+    botao.addEventListener("click", () => transmitir(clientId));
+    rodape.appendChild(botao);
+  }
+
+  /** Envia (ou reenvia) uma mensagem pendente. O mesmo clientId nunca duplica no servidor. */
+  function transmitir(clientId) {
+    const pendente = pendentes.get(clientId);
+    if (!pendente) return;
+
+    if (!socket.connected) {
+      marcarFalha(clientId, "sem conexão com o servidor.");
+      return;
+    }
+
+    const tentativa = (pendente.tentativa = (pendente.tentativa || 0) + 1);
+    pendente.elemento.classList.remove("falhou");
+    pendente.elemento.classList.add("enviando");
+    const falha = pendente.elemento.querySelector(".falha");
+    if (falha) falha.remove();
+
+    socket.timeout(TEMPO_ACK_MS).emit("novaMensagem", pendente.payload, (erroTempo, resposta) => {
+      // Resposta de uma tentativa antiga (já houve reenvio): só vale se trouxer a confirmação
+      if (tentativa !== pendente.tentativa) {
+        if (resposta && resposta.ok) adicionar(resposta.mensagem);
+        return;
+      }
+      if (erroTempo) return marcarFalha(clientId, "o servidor não confirmou a tempo.");
+      if (!resposta || !resposta.ok) {
+        if (resposta && resposta.emProcessamento) return; // a confirmação chega por mensagemRecebida
+        avisar((resposta && resposta.erro) || "Não foi possível enviar.");
+        return marcarFalha(clientId, (resposta && resposta.erro) || "erro desconhecido.");
+      }
+      // Confirma mesmo que o broadcast tenha se perdido numa reconexão
+      adicionar(resposta.mensagem);
+    });
+  }
+
+  // Após reconectar, reenvia o que ficou sem confirmação. O servidor reconhece o
+  // clientId e devolve a mensagem já gravada em vez de gravar outra vez.
+  function reenviarPendentes() {
+    pendentes.forEach((pendente, clientId) => transmitir(clientId));
+  }
+
   async function mandar() {
     if (enviando) return;
 
     const conteudo = texto.value.trim();
-    if (!conteudo && !imagemSelecionada) return;
+    if (!conteudo && !imagemSelecionada) {
+      avisar("Escreva uma mensagem ou escolha uma imagem.", "info", 3000);
+      return;
+    }
+    if (conteudo.length > LIMITE_TEXTO) {
+      avisar("A mensagem passou de " + LIMITE_TEXTO + " caracteres.");
+      return;
+    }
+    if (!socket.connected) {
+      avisar("Sem conexão com o servidor. Aguarde a reconexão para enviar.");
+      return;
+    }
 
     enviando = true;
-    enviar.disabled = true;
-
-    // Mostra a mensagem do usuário na hora, sem esperar o servidor
-    desenhar({
-      autor: "user",
-      texto: conteudo,
-      imagemUrl: imagemSelecionada ? URL.createObjectURL(imagemSelecionada) : null,
-    });
-
-    const formulario = new FormData();
-    formulario.append("mensagem", conteudo);
-    if (imagemSelecionada) formulario.append("imagem", imagemSelecionada);
-
-    texto.value = "";
-    texto.style.height = "auto";
-    limparAnexo();
-    mostrarDigitando();
+    atualizarBotao();
 
     try {
-      const dados = await chamarApi("/api/chat", { method: "POST", body: formulario });
-      esconderDigitando();
-      desenhar(dados.resposta);
+      const clientId = novoClientId();
+      const payload = { texto: conteudo, clientId };
+      let urlLocal = null;
+
+      if (imagemSelecionada) {
+        payload.imagem = { dados: await imagemSelecionada.arrayBuffer() };
+        urlLocal = URL.createObjectURL(imagemSelecionada);
+      }
+
+      // Mostra na hora (otimista); o balão é trocado quando o servidor confirmar
+      const elemento = criarBalao({
+        autor: "user",
+        usuario: usuario && usuario._id,
+        nomeAutor: usuario && usuario.nome,
+        texto: conteudo,
+        imagemUrl: urlLocal,
+      });
+      elemento.classList.add("enviando");
+      pendentes.set(clientId, { elemento, payload, urlLocal });
+      inserir(elemento, true);
+
+      texto.value = "";
+      texto.style.height = "auto";
+      limparAnexo();
+
+      transmitir(clientId);
     } catch (erro) {
-      esconderDigitando();
-      desenhar({ autor: "model", texto: "Erro: " + erro.message });
+      avisar("Não foi possível preparar a mensagem: " + erro.message);
     } finally {
       enviando = false;
-      enviar.disabled = false;
+      atualizarBotao();
       texto.focus();
     }
   }
@@ -184,21 +480,28 @@
 
   // ---------- Limpar histórico ----------
   limpar.addEventListener("click", async () => {
-    if (!confirm("Apagar todas as mensagens? Isso remove o histórico do banco de dados.")) return;
+    if (!confirm("Apagar todas as SUAS mensagens (e as respostas do Gemini a você)? Isso remove do banco de dados para todos.")) return;
 
     try {
-      await chamarApi("/api/chat/historico", { method: "DELETE" });
-      estadoVazio();
+      const dados = await chamarApi("/api/chat/historico", { method: "DELETE" });
+      // O servidor também avisa os outros por "mensagensRemovidas"; aqui garantimos a nossa tela
+      const minhas = [];
+      renderizadas.forEach((elemento, id) => {
+        if (elemento.classList.contains("de-usuario")) minhas.push(id);
+      });
+      remover(minhas);
+      avisar(dados.removidas + " mensagem(ns) apagada(s).", "sucesso", 3000);
     } catch (erro) {
-      alert("Não foi possível apagar: " + erro.message);
+      avisar("Não foi possível apagar: " + erro.message);
     }
   });
 
   // ---------- Sair ----------
   sair.addEventListener("click", () => {
+    socket.disconnect();
     Sessao.limpar();
     window.location.replace("index.html");
   });
 
-  carregar();
+  estadoConexao("conectando", "Conectando…");
 })();
