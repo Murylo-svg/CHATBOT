@@ -1,9 +1,12 @@
 require('dotenv').config();
 
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 
 const conectarBanco = require('./config/db');
+const { verificarOrigem } = require('./config/cors');
+const configurarSocket = require('./socket');
 const rotasHealth = require('./routes/health');
 const rotasAuth = require('./routes/auth');
 const rotasChat = require('./routes/chat');
@@ -12,24 +15,9 @@ const app = express();
 const PORTA = process.env.PORT || 3000;
 
 // ---------- CORS ----------
-// Lista de origens liberadas. Em dev, deixa passar qualquer localhost.
-const origensPermitidas = (process.env.CORS_ORIGIN || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
-
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) return callback(null, true); // Postman, curl, health checks
-      if (origensPermitidas.length === 0) return callback(null, true);
-      if (origensPermitidas.includes(origin)) return callback(null, true);
-      if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
-      if (/^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return callback(null, true);
-      return callback(new Error('Origem nao permitida pelo CORS: ' + origin));
-    },
-  })
-);
+// A mesma regra (config/cors.js) vale para o Express e para o Socket.io.
+// Em dev, deixa passar qualquer localhost.
+app.use(cors({ origin: verificarOrigem }));
 
 app.use(express.json({ limit: '2mb' }));
 
@@ -39,7 +27,8 @@ app.use('/api', rotasHealth);
 app.get('/', (req, res) => {
   res.json({
     nome: 'API do Agente de IA',
-    versao: '1.0.0',
+    versao: '2.0.0',
+    tempoReal: 'Socket.io no mesmo endereco (path /socket.io)',
     documentacao: 'Veja o README do repositorio',
     health: '/api/health',
   });
@@ -70,16 +59,28 @@ app.use((erro, req, res, next) => {
   return res.status(500).json({ erro: 'Erro interno do servidor', detalhe: erro.message });
 });
 
+// ---------- Servidor HTTP compartilhado (Express + Socket.io) ----------
+// O Socket.io se pendura no MESMO servidor HTTP do Express: uma unica porta
+// atende as rotas REST e as conexoes WebSocket (exigencia do Render).
+const servidor = http.createServer(app);
+const io = configurarSocket(servidor);
+app.set('io', io); // as rotas REST podem avisar a sala (ex.: limpeza do historico)
+
 // ---------- Inicialização ----------
-async function iniciar() {
+async function iniciar(porta = PORTA) {
   await conectarBanco();
-  app.listen(PORTA, () => {
-    console.log(`Servidor rodando na porta ${PORTA}`);
-    console.log(`Health check: http://localhost:${PORTA}/api/health`);
+  await new Promise((resolve) => servidor.listen(porta, resolve));
+  console.log(`Servidor HTTP + Socket.io rodando na porta ${servidor.address().port}`);
+  console.log(`Health check: http://localhost:${servidor.address().port}/api/health`);
+  return servidor;
+}
+
+// `node server.js` sobe o servidor; `require('./server')` (testes) apenas importa
+if (require.main === module) {
+  iniciar().catch((erro) => {
+    console.error('Falha ao iniciar o servidor:', erro);
+    process.exit(1);
   });
 }
 
-iniciar().catch((erro) => {
-  console.error('Falha ao iniciar o servidor:', erro);
-  process.exit(1);
-});
+module.exports = { app, servidor, io, iniciar };

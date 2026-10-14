@@ -83,6 +83,7 @@ git commit -am "Remove .env do versionamento"
    JWT_EXPIRES_IN     = 7d
    GEMINI_API_KEY     = ...
    GEMINI_MODEL       = gemini-2.0-flash
+   GEMINI_MAX_SIMULTANEAS = 3            (opcional)
    CLOUDINARY_URL     = cloudinary://...
    NODE_ENV           = production
    CORS_ORIGIN        = https://seu-projeto.vercel.app
@@ -102,6 +103,14 @@ git commit -am "Remove .env do versionamento"
    Se vier `"bancoDeDados": "desconectado"`, o problema é a `MONGO_URI` ou o
    Network Access do Atlas.
 
+6. **WebSocket (Sprint 7):** o Socket.io roda no mesmo serviço, na mesma porta,
+   no caminho `/socket.io`. O Render aceita WebSocket sem configuração extra.
+   Deixe **Instances = 1**: o contador de online e as travas anti-duplicação
+   do Gemini ficam na memória do processo.
+
+   Teste rápido (deve responder com um JSON que começa com `0{"sid"`):
+   `https://agente-ia-backend.onrender.com/socket.io/?EIO=4&transport=polling`
+
 ---
 
 ## 4. Publicar o frontend na Vercel
@@ -109,10 +118,11 @@ git commit -am "Remove .env do versionamento"
 1. Edite `frontend/js/config.js`:
 
    ```js
-   const API_URL = "https://agente-ia-backend.onrender.com";
+   const API_URL_PRODUCAO = "https://agente-ia-backend.onrender.com";
    ```
 
-   Sem barra no final. Commit e push.
+   Sem barra no final. Commit e push. O Socket.io usa esse mesmo endereço
+   (`SOCKET_URL`), e o cliente Socket.io já vem em `frontend/js/vendor/`.
 
 2. vercel.com → **Add New** → **Project** → importe o repositório
 3. Configure:
@@ -127,6 +137,8 @@ git commit -am "Remove .env do versionamento"
 4. **Deploy**
 5. Copie a URL gerada e volte ao Render para ajustar `CORS_ORIGIN`.
    O Render reinicia o serviço sozinho ao salvar a variável.
+   A mesma variável libera o REST **e** o Socket.io. Se tiver URLs de preview
+   da Vercel, separe por vírgula.
 
 ---
 
@@ -153,7 +165,7 @@ relatório. Sugestões de como executar cada um:
 |---|---|
 | Cadastro | Crie uma conta com um e-mail novo. Confira no Atlas se o documento apareceu em `usuarios` |
 | Login | Saia e entre de novo. Deve cair direto no chat |
-| Logout | Clique em Sair. No DevTools → Application → Local Storage, o `token` tem que sumir |
+| Logout | Clique em Sair. No DevTools → Application → Local Storage, o `token_saas` tem que sumir |
 | Rota protegida | Copie a URL do `chat.html` e abra em aba anônima. Deve voltar para o login |
 | API sem token | `curl -i https://sua-api.onrender.com/api/chat/historico` → espera `401` |
 | Memória | "Meu nome é Ana." Depois: "Qual é o meu nome?" |
@@ -164,6 +176,24 @@ relatório. Sugestões de como executar cada um:
 | Health público | Abra `/api/health` em aba anônima |
 | Luz verde | Carregue o chat com a API no ar |
 
+### Testes da Sprint 7 (tempo real)
+
+Abra o chat em **duas janelas** (uma normal e uma anônima) com **contas diferentes**.
+
+| Teste | Como fazer | Esperado |
+|---|---|---|
+| 1. Tempo real | Envie "oi" na janela A | Aparece na janela B na hora, sem F5 |
+| 2. Sem Gemini | Envie "bom dia" | Nenhuma resposta do bot |
+| 3. Com Gemini | Envie "@gemini qual a capital da França?" e depois "@bot e do Japão?" | "🤖 Moderador Gemini digitando" e uma resposta nas duas janelas |
+| 4. JWT inválido | DevTools → Application → Local Storage → troque `token_saas` por `abc` e recarregue | Volta para o login com "Token invalido." |
+| 4b. Via terminal | `node -e "require('socket.io-client')('https://SUA-API.onrender.com',{auth:{token:'x'},transports:['websocket']}).on('connect_error',e=>{console.log(e.message,e.data);process.exit()})"` (dentro de `backend/`, após `npm install`) | `Token invalido. { codigo: 'TOKEN_INVALIDO' }` |
+| 5. Nome real | No console da janela A: `localStorage.setItem('usuario', JSON.stringify({nome:'Falso'}))` e envie algo | Na janela B aparece o nome do cadastro, não "Falso" |
+| 6. Online | Observe o contador; feche a janela B | Vai de 2 para 1. Duas abas da mesma conta contam 1 |
+| 7. Reconexão | DevTools → Network → Offline na janela B, envie pela A, volte para Online | B mostra "Reconectando…" e depois recebe a mensagem uma vez só |
+| 8. Imagem | Envie uma foto com "@gemini que fruta é essa?" | A imagem aparece nas duas janelas e o bot descreve |
+| 9. Histórico | Recarregue a página | As mensagens voltam sem duplicar |
+| 10. Limpar | Clique em "Limpar histórico" na janela A | As mensagens de A (e as respostas do bot a A) somem nas duas janelas |
+
 ---
 
 ## Problemas comuns
@@ -171,6 +201,15 @@ relatório. Sugestões de como executar cada um:
 **`CORS policy: No 'Access-Control-Allow-Origin'`**
 A URL da Vercel não está em `CORS_ORIGIN` no Render, ou tem barra no final.
 Coloque exatamente `https://seu-projeto.vercel.app`.
+
+**O chat fica em "Reconectando…" / "Sem conexão"**
+O Render pode estar acordando (até 50 s). Se continuar, confira `CORS_ORIGIN`
+(a origem também é checada no WebSocket) e se `API_URL_PRODUCAO` no `config.js`
+aponta para o Render com `https://`.
+
+**Volto para o login logo depois de entrar**
+O token foi recusado no handshake: o `JWT_SECRET` do Render mudou depois do
+login, ou o usuário foi apagado do banco. Basta entrar de novo.
 
 **Primeira mensagem demora 50 segundos**
 O Render estava dormindo. É exatamente o que o UptimeRobot resolve.

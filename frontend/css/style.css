@@ -435,6 +435,117 @@ a:focus-visible {
 
 .icone:disabled { opacity: 0.45; cursor: not-allowed; }
 
+/* ---------- Sala pública em tempo real (Sprint 7) ---------- */
+.indicadores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 12px;
+}
+
+.conexao,
+.online {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--linha);
+  background: var(--fundo);
+  color: var(--tinta-suave);
+  font-weight: 500;
+}
+
+.conexao::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.conexao.conectado { color: var(--acento); background: var(--acento-claro); }
+.conexao.conectando,
+.conexao.reconectando { color: #8a6d1d; background: #fbf4e2; }
+.conexao.reconectando::before,
+.conexao.conectando::before { animation: pulsar 1.2s infinite; }
+.conexao.erro { color: var(--alerta); background: #fbeceb; }
+
+.online .ponto {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--acento);
+}
+
+.remetente {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 4px 3px;
+  font-size: 12px;
+  color: var(--tinta-suave);
+}
+
+.remetente .nome { font-weight: 600; color: var(--tinta); }
+.balao.de-usuario .remetente { justify-content: flex-end; }
+
+.balao.de-outro { align-self: flex-start; }
+
+.balao.de-outro .corpo {
+  background: var(--superficie);
+  color: var(--tinta);
+  border: 1px solid var(--linha);
+  border-bottom-left-radius: 4px;
+}
+
+.balao.de-bot .corpo {
+  background: var(--acento-claro);
+  border: 1px solid #c4dccd;
+}
+
+.balao.de-bot .remetente .nome { color: var(--acento); }
+
+.balao.enviando { opacity: 0.6; }
+.balao.falhou .corpo { outline: 1px dashed var(--alerta); }
+
+.balao .falha {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--alerta);
+  text-align: right;
+}
+
+.balao .falha button {
+  background: transparent;
+  color: var(--alerta);
+  text-decoration: underline;
+  padding: 0;
+  font-size: 12px;
+}
+
+.digitando em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--acento);
+  margin-right: 6px;
+  align-self: center;
+}
+
+.aviso-chat {
+  margin: 0 16px 8px;
+  padding: 9px 13px;
+  border-radius: var(--raio);
+  font-size: 13.5px;
+  flex-shrink: 0;
+}
+
+.aviso-chat[hidden] { display: none; }
+.aviso-chat.erro { background: #fbeceb; color: var(--alerta); }
+.aviso-chat.info { background: var(--fundo); color: var(--tinta-suave); }
+.aviso-chat.sucesso { background: var(--acento-claro); color: var(--acento); }
+
 @media (max-width: 640px) {
   .balao { max-width: 88%; }
   .topo { padding: 12px 14px; }

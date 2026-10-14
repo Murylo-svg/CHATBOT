@@ -11,6 +11,18 @@ Regras:
 - Quando precisar de dados de clima em tempo real, use a ferramenta consultar_clima em vez de chutar.
 - Nao invente informacoes. Se nao souber, diga que nao sabe.`;
 
+// Persona usada na sala publica em tempo real (Socket.io)
+const INSTRUCAO_MODERADOR = `Voce e o "Moderador Gemini", o assistente de uma sala de chat PUBLICA com varias pessoas.
+Regras:
+- Responda sempre em portugues do Brasil, de forma clara, cordial e curta (no maximo alguns paragrafos).
+- Cada mensagem humana do historico chega no formato "Nome: texto". Use os nomes para saber quem disse o que.
+- Voce so e chamado quando alguem escreve @gemini ou @bot. Responda a ULTIMA mensagem, dirigindo-se a quem perguntou pelo nome.
+- Nao comece a resposta com "Moderador Gemini:" nem escreva @gemini ou @bot na resposta.
+- Quando receber uma imagem, analise o que for perguntado sobre ela.
+- Para clima em tempo real, use a ferramenta consultar_clima em vez de chutar.
+- Mantenha a conversa respeitosa. Se alguem for ofensivo, peca educadamente que siga as regras da sala.
+- Nao invente informacoes. Se nao souber, diga que nao sabe.`;
+
 // ---------- Ferramentas disponiveis para a IA ----------
 const FERRAMENTAS = [
   {
@@ -41,7 +53,7 @@ const EXECUTORES = {
 };
 
 // ---------- Chamada HTTP ao Gemini ----------
-async function chamarGemini(contents) {
+async function chamarGemini(contents, instrucao = INSTRUCAO_SISTEMA) {
   const chave = process.env.GEMINI_API_KEY;
   if (!chave) throw new Error('GEMINI_API_KEY nao definida no .env');
 
@@ -54,7 +66,7 @@ async function chamarGemini(contents) {
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: INSTRUCAO_SISTEMA }] },
+        systemInstruction: { parts: [{ text: instrucao }] },
         contents,
         tools: FERRAMENTAS,
         generationConfig: { temperature: 0.7, maxOutputTokens: 1200 },
@@ -97,16 +109,19 @@ async function chamarGemini(contents) {
  *
  * @param {Array} historico  mensagens anteriores no formato do Gemini
  * @param {Array} partesAtuais  partes da mensagem nova (texto e/ou imagem)
+ * @param {object} [opcoes]
+ * @param {string} [opcoes.instrucao]  instrucao de sistema (padrao: assistente pessoal)
  * @returns {Promise<{texto: string, ferramentaUsada: string|null}>}
  */
-async function conversar(historico, partesAtuais) {
+async function conversar(historico, partesAtuais, opcoes = {}) {
+  const instrucao = opcoes.instrucao || INSTRUCAO_SISTEMA;
   const contents = [...historico, { role: 'user', parts: partesAtuais }];
 
   let ferramentaUsada = null;
   const MAX_VOLTAS = 3; // evita loop infinito de function calling
 
   for (let volta = 0; volta < MAX_VOLTAS; volta++) {
-    const dados = await chamarGemini(contents);
+    const dados = await chamarGemini(contents, instrucao);
 
     const candidato = dados.candidates?.[0];
 
@@ -156,4 +171,4 @@ async function conversar(historico, partesAtuais) {
   };
 }
 
-module.exports = { conversar };
+module.exports = { conversar, INSTRUCAO_MODERADOR };
