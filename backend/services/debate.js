@@ -25,6 +25,12 @@ const CONFIG = {
   intervaloMax: 60,
 };
 
+// Esperas extras do debate quando uma IA segue ocupada depois das tentativas rapidas
+const ESPERAS_ERRO_MS = () => {
+  const base = num(process.env.DEBATE_ESPERA_ERRO_MS, 5000);
+  return [base, base * 2, base * 3];
+};
+
 const REGEX_DEBATE = /^\s*@debate\b\s*([\s\S]*)$/i;
 const REGEX_PARAR = /^\s*@parar\b/i;
 
@@ -185,12 +191,26 @@ function criarGerenciadorDebate(io) {
 
       const inicio = Date.now();
       let texto;
-      try {
-        texto = limparFala(await GERADORES[bot](debate.tema, turno, debate.total, abertura, falas));
-      } catch (erro) {
-        console.error(`[debate] ${bot} falhou:`, erro.message);
-        if (!debate.parado) parar(`Debate interrompido: ${sala.NOMES_BOT[bot]} nao conseguiu responder (${erro.message}).`);
-        return;
+      // As APIs ja tentam de novo rapidamente. Se a IA continuar ocupada ("high demand"),
+      // o debate espera mais um pouco e tenta outra vez, avisando a sala, antes de desistir.
+      for (let rodada = 0; ; rodada++) {
+        try {
+          texto = limparFala(await GERADORES[bot](debate.tema, turno, debate.total, abertura, falas));
+          break;
+        } catch (erro) {
+          console.error(`[debate] ${bot} falhou (rodada ${rodada + 1}):`, erro.message);
+          if (debate.parado) return;
+          if (!erro.temporario || rodada >= ESPERAS_ERRO_MS().length) {
+            parar(`Debate interrompido: ${sala.NOMES_BOT[bot]} nao conseguiu responder (${erro.message}).`);
+            return;
+          }
+          const esperaErro = ESPERAS_ERRO_MS()[rodada];
+          debate.proximaEm = Date.now() + esperaErro;
+          emitirEstado({ aviso: `${sala.NOMES_BOT[bot]} esta sobrecarregado. Tentando de novo...` });
+          await dormir(debate, esperaErro);
+          if (debate.parado) return;
+          emitirEstado();
+        }
       }
       if (!texto) texto = '...';
 

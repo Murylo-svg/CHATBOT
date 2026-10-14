@@ -1,4 +1,5 @@
 const { consultarClima } = require('./weather');
+const { erroDeApi, comNovasTentativas } = require('./tentativas');
 
 const MODELO = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -53,7 +54,20 @@ const EXECUTORES = {
 };
 
 // ---------- Chamada HTTP ao Gemini ----------
+// Tenta de novo quando o Google responde "high demand" (503), 429 ou outro erro temporario.
+// Se mesmo assim falhar e GEMINI_MODEL_RESERVA estiver definido, tenta uma vez com ele.
 async function chamarGemini(contents, instrucao = INSTRUCAO_SISTEMA) {
+  try {
+    return await comNovasTentativas(() => chamarGeminiUmaVez(contents, instrucao, MODELO), { rotulo: 'Gemini' });
+  } catch (erro) {
+    const reserva = process.env.GEMINI_MODEL_RESERVA;
+    if (!erro.temporario || !reserva || reserva === MODELO) throw erro;
+    console.warn(`[Gemini] ${MODELO} indisponivel, usando o modelo reserva ${reserva}.`);
+    return chamarGeminiUmaVez(contents, instrucao, reserva);
+  }
+}
+
+async function chamarGeminiUmaVez(contents, instrucao, modelo) {
   const chave = process.env.GEMINI_API_KEY;
   if (!chave) throw new Error('GEMINI_API_KEY nao definida no .env');
 
@@ -61,7 +75,7 @@ async function chamarGemini(contents, instrucao = INSTRUCAO_SISTEMA) {
   const timer = setTimeout(() => controller.abort(), 45000);
 
   try {
-    const resposta = await fetch(`${BASE}/${MODELO}:generateContent?key=${chave}`, {
+    const resposta = await fetch(`${BASE}/${modelo}:generateContent?key=${chave}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
@@ -80,15 +94,16 @@ async function chamarGemini(contents, instrucao = INSTRUCAO_SISTEMA) {
       dados = textoBruto ? JSON.parse(textoBruto) : null;
     } catch {
       // O Google devolveu algo que nao e JSON (corpo vazio, HTML de erro, etc.)
-      throw new Error(
-        `Gemini: resposta invalida (HTTP ${resposta.status}). ` +
-        `Corpo recebido: ${textoBruto.slice(0, 200) || '(vazio)'}`
+      throw erroDeApi(
+        'Gemini',
+        resposta.status,
+        `resposta invalida (HTTP ${resposta.status}). Corpo recebido: ${textoBruto.slice(0, 200) || '(vazio)'}`
       );
     }
 
     if (!resposta.ok) {
       const msg = dados?.error?.message || `HTTP ${resposta.status}`;
-      throw new Error('Gemini: ' + msg);
+      throw erroDeApi('Gemini', resposta.status, msg);
     }
 
     if (!dados) {
