@@ -56,19 +56,21 @@ const EXECUTORES = {
 // ---------- Chamada HTTP ao Gemini ----------
 // Tenta de novo quando o Google responde "high demand" (503), 429 ou outro erro temporario.
 // Se mesmo assim falhar e GEMINI_MODEL_RESERVA estiver definido, tenta uma vez com ele.
-async function chamarGemini(contents, instrucao = INSTRUCAO_SISTEMA) {
+// `conta` permite usar outra chave/modelo (ex.: o "Gemini 2" do debate).
+async function chamarGemini(contents, instrucao = INSTRUCAO_SISTEMA, conta = {}) {
+  const modelo = conta.modelo || MODELO;
+  const chave = conta.chave || process.env.GEMINI_API_KEY;
   try {
-    return await comNovasTentativas(() => chamarGeminiUmaVez(contents, instrucao, MODELO), { rotulo: 'Gemini' });
+    return await comNovasTentativas(() => chamarGeminiUmaVez(contents, instrucao, modelo, chave), { rotulo: 'Gemini' });
   } catch (erro) {
     const reserva = process.env.GEMINI_MODEL_RESERVA;
-    if (!erro.temporario || !reserva || reserva === MODELO) throw erro;
-    console.warn(`[Gemini] ${MODELO} indisponivel, usando o modelo reserva ${reserva}.`);
-    return chamarGeminiUmaVez(contents, instrucao, reserva);
+    if (!erro.temporario || !reserva || reserva === modelo) throw erro;
+    console.warn(`[Gemini] ${modelo} indisponivel, usando o modelo reserva ${reserva}.`);
+    return chamarGeminiUmaVez(contents, instrucao, reserva, chave);
   }
 }
 
-async function chamarGeminiUmaVez(contents, instrucao, modelo) {
-  const chave = process.env.GEMINI_API_KEY;
+async function chamarGeminiUmaVez(contents, instrucao, modelo, chave) {
   if (!chave) throw new Error('GEMINI_API_KEY nao definida no .env');
 
   const controller = new AbortController();
@@ -126,6 +128,8 @@ async function chamarGeminiUmaVez(contents, instrucao, modelo) {
  * @param {Array} partesAtuais  partes da mensagem nova (texto e/ou imagem)
  * @param {object} [opcoes]
  * @param {string} [opcoes.instrucao]  instrucao de sistema (padrao: assistente pessoal)
+ * @param {string} [opcoes.chave]  chave da API (padrao: GEMINI_API_KEY)
+ * @param {string} [opcoes.modelo]  modelo (padrao: GEMINI_MODEL)
  * @returns {Promise<{texto: string, ferramentaUsada: string|null}>}
  */
 async function conversar(historico, partesAtuais, opcoes = {}) {
@@ -136,7 +140,7 @@ async function conversar(historico, partesAtuais, opcoes = {}) {
   const MAX_VOLTAS = 3; // evita loop infinito de function calling
 
   for (let volta = 0; volta < MAX_VOLTAS; volta++) {
-    const dados = await chamarGemini(contents, instrucao);
+    const dados = await chamarGemini(contents, instrucao, { chave: opcoes.chave, modelo: opcoes.modelo });
 
     const candidato = dados.candidates?.[0];
 

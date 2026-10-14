@@ -3,7 +3,7 @@
  *
  * Eventos recebidos do cliente:
  *   novaMensagem      { texto, clientId, imagem?: { dados: ArrayBuffer }, debate?: { turnos, intervalo } }  (+ ack)
- *                     texto "@debate tema" abre um debate Gemini x Mistral; "@parar" encerra
+ *                     texto "@debate tema" abre um debate entre IAs; "@parar" encerra
  *   pararDebate       (+ ack) encerra o debate em andamento
  *
  * Eventos emitidos pelo servidor:

@@ -25,7 +25,8 @@ Siga na ordem. Do zero ao ar em mais ou menos 40 minutos.
 2. No Dashboard, revele o **API Environment variable**
 3. Copie o valor inteiro: `cloudinary://123456:abcdef@seu-cloud-name`
 
-### Mistral (segunda IA, para o Debate de IAs)
+### Mistral (opcional: adversário no Debate de IAs)
+Sem ela, o debate usa o ✨ Gemini 2 e funciona só com a chave do Gemini.
 1. Acesse console.mistral.ai e crie a conta
 2. Em **Billing / Plans**, escolha o plano gratuito **Experiment** (não pede cartão,
    só verificação por telefone)
@@ -90,7 +91,9 @@ git commit -am "Remove .env do versionamento"
    GEMINI_API_KEY     = ...
    GEMINI_MODEL       = gemini-2.0-flash
    GEMINI_MAX_SIMULTANEAS = 3            (opcional)
-   MISTRAL_API_KEY    = ...
+   GEMINI_API_KEY_2   = ...                       (opcional, outra chave do Gemini)
+   GEMINI_MODEL_2     = ...                       (opcional, outro modelo do Gemini)
+   MISTRAL_API_KEY    = ...                       (opcional, troca o Gemini 2 pelo Mistral)
    MISTRAL_MODEL      = mistral-small-latest      (opcional)
    DEBATE_INTERVALO_SEGUNDOS = 8         (opcional)
    CLOUDINARY_URL     = cloudinary://...
@@ -201,7 +204,7 @@ Abra o chat em **duas janelas** (uma normal e uma anônima) com **contas diferen
 | 7. Reconexão | DevTools → Network → Offline na janela B, envie pela A, volte para Online | B mostra "Reconectando…" e depois recebe a mensagem uma vez só |
 | 8. Imagem | Envie uma foto com "@gemini que fruta é essa?" | A imagem aparece nas duas janelas e o bot descreve |
 | 9. Histórico | Recarregue a página | As mensagens voltam sem duplicar |
-| 11. Debate | Clique em 🎭 Debate de IAs, tema "cachorro ou gato?", 4 falas, 8 s | Gemini e Mistral se alternam nas duas janelas, com contagem regressiva no painel |
+| 11. Debate | Clique em 🎭 Debate de IAs, tema "cachorro ou gato?", 4 falas, 8 s | Gemini e Gemini 2 (ou Mistral) se alternam nas duas janelas, com contagem regressiva no painel |
 | 12. Parar debate | Comece outro debate e digite `@parar` | O painel some e nenhuma fala nova aparece |
 | 10. Limpar | Clique em "Limpar histórico" na janela A | As mensagens de A (e as respostas do bot a A) somem nas duas janelas |
 
@@ -233,9 +236,14 @@ codificados) ou Network Access fechado no Atlas.
 Pergunte de forma direta: "Qual a temperatura em Tóquio agora?". Se o modelo
 não existir mais, troque `GEMINI_MODEL` para `gemini-1.5-flash`.
 
-**Debate: "O debate precisa da MISTRAL_API_KEY"**
-Faltou a variável `MISTRAL_API_KEY` no Render (ou o serviço não reiniciou depois de salvar).
+**Debate: "O debate precisa da GEMINI_API_KEY"**
+Faltou a variável `GEMINI_API_KEY` no Render (ou o serviço não reiniciou depois de salvar).
 As variáveis `GROQ_API_KEY` e `GROQ_MODEL` não são mais usadas e podem ser apagadas.
+
+**O Gemini 2 vive dando "high demand" ou limite de uso**
+Os dois Gemini dividem a mesma cota quando usam a mesma chave e o mesmo modelo.
+Crie uma chave em **outro projeto** no Google AI Studio e coloque em `GEMINI_API_KEY_2`,
+ou escolha outro modelo em `GEMINI_MODEL_2`, ou aumente o tempo entre as falas.
 
 **Debate interrompido: "Mistral: Unauthorized"**
 A chave está errada ou o plano Experiment ainda não foi ativado em console.mistral.ai.

@@ -37,12 +37,14 @@ cloudinary.enviarImagem = async (buffer, usuarioId) => {
 };
 
 const chamadasGemini = [];
+const urlsGemini = [];
 const falhasGemini = []; // respostas de erro a devolver antes das proximas respostas normais
 let respostaGemini = 'Ola! Eu sou o moderador.';
 const fetchOriginal = global.fetch;
 global.fetch = async (url, opcoes) => {
   if (String(url).includes('generativelanguage.googleapis.com')) {
     chamadasGemini.push(JSON.parse(opcoes.body));
+    urlsGemini.push(String(url));
     const falha = falhasGemini.shift();
     if (falha) {
       return new Response(JSON.stringify({ error: { code: falha.status, message: falha.mensagem } }), {
@@ -194,6 +196,7 @@ beforeEach(async () => {
   while (abertos.length) abertos.pop().disconnect();
   await pausa(50);
   chamadasGemini.length = 0;
+  urlsGemini.length = 0;
   chamadasMistral.length = 0;
   falhasGemini.length = 0;
   respostaGemini = 'Ola! Eu sou o moderador.';
@@ -612,7 +615,7 @@ test('@debate coloca Gemini e Mistral para conversar em turnos, com intervalo, v
   assert.equal(salvas, 4);
 });
 
-test('debate: um por vez, @parar e o botao encerram, e sem MISTRAL_API_KEY ele nao comeca', async () => {
+test('debate: um por vez, @parar e o botao encerram, e sem GEMINI_API_KEY ele nao comeca', async () => {
   const ana = await cadastrar('Ana');
   const beto = await cadastrar('Beto');
   const sa = await conectado(cliente(ana.token));
@@ -645,15 +648,15 @@ test('debate: um por vez, @parar e o botao encerram, e sem MISTRAL_API_KEY ele n
   assert.match((await fim2).motivo, /Ana parou o debate/);
   assert.equal((await sa.timeout(3000).emitWithAck('pararDebate')).ok, false);
 
-  // Sem chave do Mistral
-  const chave = process.env.MISTRAL_API_KEY;
-  process.env.MISTRAL_API_KEY = '';
+  // Sem chave do Gemini nao ha debate
+  const chave = process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = '';
   try {
     const semChave = await emitir(sa, { texto: '@debate sem chave', clientId: novoId() });
     assert.equal(semChave.ok, false);
-    assert.match(semChave.erro, /MISTRAL_API_KEY/);
+    assert.match(semChave.erro, /GEMINI_API_KEY/);
   } finally {
-    process.env.MISTRAL_API_KEY = chave;
+    process.env.GEMINI_API_KEY = chave;
   }
 
   const semTema = await emitir(sa, { texto: '@debate', clientId: novoId() });
@@ -720,6 +723,41 @@ test('erro definitivo (ex.: chave invalida) interrompe o debate na hora, sem ins
   const final = await fim;
   assert.match(final.motivo, /Debate interrompido.*API key not valid/);
   assert.equal(chamadasGemini.length, 1);
+});
+
+test('sem MISTRAL_API_KEY o adversario e o Gemini 2, com chave e modelo proprios', async () => {
+  const chaveMistral = process.env.MISTRAL_API_KEY;
+  process.env.MISTRAL_API_KEY = '';
+  process.env.GEMINI_API_KEY_2 = 'segunda-chave-gemini';
+  process.env.GEMINI_MODEL_2 = 'gemini-modelo-dois';
+  try {
+    const ana = await cadastrar('Ana');
+    const sa = await conectado(cliente(ana.token));
+    const fim = esperarFimDebate(sa);
+    respostaGemini = 'Gemini 2: discordo com ironia. @bot';
+    const ack = await emitir(sa, { texto: '@debate gemini contra gemini', clientId: novoId(), debate: { turnos: 4, intervalo: 0 } });
+    assert.equal(ack.ok, true, ack.erro);
+    await fim;
+
+    const falas = sa.recebidas.filter((m) => m.debate === ack.mensagem._id);
+    assert.deepEqual(falas.map((m) => m.bot), ['gemini', 'gemini2', 'gemini', 'gemini2']);
+    assert.deepEqual([...new Set(falas.map((m) => m.nomeAutor))], ['🤖 Moderador Gemini', '✨ Gemini 2']);
+    assert.ok(falas.every((m) => !/^gemini 2:/i.test(m.texto) && !m.texto.includes('@')));
+    assert.equal(chamadasMistral.length, 0);
+
+    // Gemini 1 usa a chave/modelo principais; Gemini 2 usa os proprios
+    assert.ok(!urlsGemini[0].includes('gemini-modelo-dois') && urlsGemini[0].includes('key=chave-falsa'));
+    assert.ok(urlsGemini[1].includes('/gemini-modelo-dois:') && urlsGemini[1].includes('key=segunda-chave-gemini'));
+    // Personalidades e papeis diferentes
+    assert.match(chamadasGemini[0].systemInstruction.parts[0].text, /Voce e Gemini, .*chamada Gemini 2/);
+    assert.match(chamadasGemini[1].systemInstruction.parts[0].text, /Voce e Gemini 2, .*chamada Gemini,[\s\S]*ironica/);
+    // O Gemini 2 ve as falas do Gemini 1 como de outro participante
+    assert.match(chamadasGemini[1].contents.at(-1).parts[0].text, /^Gemini: discordo/m);
+  } finally {
+    process.env.MISTRAL_API_KEY = chaveMistral;
+    delete process.env.GEMINI_API_KEY_2;
+    delete process.env.GEMINI_MODEL_2;
+  }
 });
 
 // Deve ficar por ultimo: troca o modelo do Mistral em uso para o resto do processo

@@ -19,7 +19,7 @@ conversa quando alguém escreve `@gemini` ou `@bot`.
 | 🛡️ **Socket autenticado** | O JWT é validado no handshake (`io.use`). Token ausente, inválido ou expirado é recusado |
 | 🪪 **Identidade real** | O nome exibido vem do MongoDB, nunca do que o navegador envia |
 | 🤖 **Moderador Gemini** | Só responde mensagens com `@gemini` ou `@bot`, e a resposta aparece para todos |
-| 🎭 **Debate de IAs** | Gemini (Google) × Mistral (Mistral AI) debatem um tema em turnos, com intervalo para dar tempo de ler |
+| 🎭 **Debate de IAs** | Gemini × ✨ Gemini 2 (ou 🌀 Mistral) debatem um tema em turnos, com intervalo para dar tempo de ler |
 | 🧠 **Memória** | As últimas 20 mensagens da sala (com o nome de quem falou) vão como contexto para a IA |
 | 👁️ **Visão** | A imagem vai pelo socket, é validada, sobe para o Cloudinary e segue em base64 para o Gemini |
 | 🌦️ **Ações reais** | A IA chama sozinha a função de clima (Open-Meteo) quando a pergunta exige |
@@ -137,7 +137,14 @@ Erros de conexão chegam no `connect_error` com `err.data.codigo`:
 
 ## 🎭 Debate de IAs
 
-Duas IAs diferentes e gratuitas conversam entre si na sala, e todo mundo assiste:
+Duas IAs conversam entre si na sala, e todo mundo assiste. O 🤖 Gemini sempre abre
+defendendo um lado. O adversário depende das variáveis do Render:
+
+- **Sem `MISTRAL_API_KEY` (padrão):** ✨ **Gemini 2**, outra instância do Gemini com outra
+  personalidade (mais direta e irônica). Funciona só com a `GEMINI_API_KEY`. Para ter cota
+  separada e um estilo mais diferente, defina `GEMINI_API_KEY_2` (chave de **outro projeto**
+  no Google AI Studio) e `GEMINI_MODEL_2` (outro modelo do Gemini).
+- **Com `MISTRAL_API_KEY`:** 🌀 **Mistral**, da Mistral AI.
 
 | | IA | Empresa | Onde pegar a chave (grátis) |
 |---|---|---|---|
@@ -146,7 +153,7 @@ Duas IAs diferentes e gratuitas conversam entre si na sala, e todo mundo assiste
 
 **Como usar:** clique em **🎭 Debate de IAs**, escreva o tema e escolha quantas falas
 (4 a 12) e o tempo entre elas (5 a 20 s). Ou digite na sala `@debate pizza com abacaxi?`
-(usa os padrões: 8 falas, 8 s). O Gemini abre defendendo um lado, o Mistral rebate com o
+(usa os padrões: 8 falas, 8 s). O Gemini abre defendendo um lado, o adversário rebate com o
 outro, e eles se alternam. Um painel mostra o tema, a fala atual e a contagem regressiva
 até a próxima.
 
@@ -203,7 +210,9 @@ anônima) e entre com contas diferentes.
 | `GEMINI_MODEL` | não | Modelo do Gemini. Padrão `gemini-2.0-flash` |
 | `GEMINI_MODEL_RESERVA` | não | Modelo usado se o principal seguir sobrecarregado ("high demand") |
 | `GEMINI_MAX_SIMULTANEAS` | não | Respostas do Moderador ao mesmo tempo. Padrão `3` |
-| `MISTRAL_API_KEY` | para o debate | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) (plano gratuito Experiment) |
+| `GEMINI_API_KEY_2` | não | Chave própria do ✨ Gemini 2 no debate (padrão: a `GEMINI_API_KEY`) |
+| `GEMINI_MODEL_2` | não | Modelo do ✨ Gemini 2 (padrão: o `GEMINI_MODEL`) |
+| `MISTRAL_API_KEY` | não | Se definida, o 🌀 Mistral é o adversário no lugar do Gemini 2 | [console.mistral.ai/api-keys](https://console.mistral.ai/api-keys) (plano gratuito Experiment) |
 | `MISTRAL_MODEL` | não | Modelo do Mistral. Padrão `mistral-small-latest` |
 | `DEBATE_TURNOS` / `DEBATE_TURNOS_MAX` | não | Falas padrão (8) e máximo (20) |
 | `DEBATE_INTERVALO_SEGUNDOS` | não | Tempo padrão entre falas. Padrão `8` |

@@ -11,7 +11,12 @@ const { conversar, INSTRUCAO_MODERADOR } = require('./gemini');
 const SALA = 'publica';
 const NOME_MODERADOR = '🤖 Moderador Gemini';
 // 'llama' fica para exibir falas antigas, de quando a segunda IA era o Llama da Groq
-const NOMES_BOT = { gemini: NOME_MODERADOR, mistral: '🌀 Mistral', llama: '🦙 Llama (Groq)' };
+const NOMES_BOT = {
+  gemini: NOME_MODERADOR,
+  gemini2: '✨ Gemini 2',
+  mistral: '🌀 Mistral',
+  llama: '🦙 Llama (Groq)',
+};
 const LIMITE_TEXTO = 2000; // caracteres por mensagem
 const LIMITE_IMAGEM = 5 * 1024 * 1024; // 5 MB, igual ao upload REST
 const LIMITE_CONTEXTO_IA = 20; // mensagens da sala enviadas como memoria ao Gemini

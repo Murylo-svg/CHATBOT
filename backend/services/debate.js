@@ -1,7 +1,7 @@
 /**
  * Debate entre duas IAs na sala publica.
  *
- * 🤖 Gemini (Google) e 🌀 Mistral (Mistral AI) se revezam sobre um tema,
+ * 🤖 Gemini (Google) e um adversario (🌀 Mistral ou ✨ Gemini 2) se revezam sobre um tema,
  * com um intervalo entre as falas para quem esta na sala conseguir ler.
  *
  * Seguranca contra loops e gastos:
@@ -34,13 +34,33 @@ const ESPERAS_ERRO_MS = () => {
 const REGEX_DEBATE = /^\s*@debate\b\s*([\s\S]*)$/i;
 const REGEX_PARAR = /^\s*@parar\b/i;
 
+// Quem abre o debate e sempre o Gemini. O adversario e o Mistral (se MISTRAL_API_KEY
+// estiver configurada) ou um segundo Gemini, com outra personalidade.
 const FALANTES = {
-  gemini: { nome: 'Gemini', outro: 'Mistral', postura: 'Defenda com bons argumentos o lado A FAVOR (ou a visao mais otimista) do tema.' },
-  mistral: { nome: 'Mistral', outro: 'Gemini', postura: 'Assuma o lado CONTRA (ou a visao mais critica e cetica) do tema.' },
+  gemini: {
+    nome: 'Gemini',
+    postura: 'Defenda com bons argumentos o lado A FAVOR (ou a visao mais otimista) do tema.',
+  },
+  mistral: {
+    nome: 'Mistral',
+    postura: 'Assuma o lado CONTRA (ou a visao mais critica e cetica) do tema.',
+  },
+  gemini2: {
+    nome: 'Gemini 2',
+    postura:
+      'Assuma o lado CONTRA (ou a visao mais critica e cetica) do tema. ' +
+      'Voce e outra IA, com personalidade propria: mais direta, ironica e pe no chao que o seu adversario.',
+  },
 };
 
-function instrucaoDebate(bot, tema, turno, total) {
-  const { nome, outro, postura } = FALANTES[bot];
+/** Segundo debatedor: Mistral quando houver chave; senao, um segundo Gemini. */
+function escolherAdversario() {
+  return mistralConfigurado() ? 'mistral' : 'gemini2';
+}
+
+function instrucaoDebate(bot, outroBot, tema, turno, total) {
+  const { nome, postura } = FALANTES[bot];
+  const outro = FALANTES[outroBot].nome;
   const ultimo = turno >= total - 2; // ultima fala de cada IA
   return `Voce e ${nome}, uma IA participando de um debate amigavel, ao vivo, com outra IA chamada ${outro}, numa sala de chat publica.
 Tema: "${tema}".
@@ -56,7 +76,7 @@ Regras:
 /** Remove "Gemini:" no inicio, mencoes com @ e corta textos longos demais. */
 function limparFala(texto) {
   return String(texto || '')
-    .replace(/^\s*(🤖|🌀)?\s*\*{0,2}(gemini|mistral)[^:\n]{0,25}:\*{0,2}\s*/i, '')
+    .replace(/^\s*(🤖|🌀|✨)?\s*\*{0,2}(gemini( ?2)?|mistral)[^:\n]{0,25}:\*{0,2}\s*/i, '')
     .replace(/@(?=(gemini|bot|debate|parar)\b)/gi, '')
     .trim()
     .slice(0, 1500);
@@ -77,8 +97,8 @@ function juntar(turnos) {
  * Monta a conversa do ponto de vista de quem vai falar:
  * as proprias falas sao do "modelo"; as do adversario chegam como "usuario".
  */
-function montarTurnos(bot, abertura, falas) {
-  const nomeOutro = FALANTES[bot === 'gemini' ? 'mistral' : 'gemini'].nome;
+function montarTurnos(bot, outroBot, abertura, falas) {
+  const nomeOutro = FALANTES[outroBot].nome;
   const turnos = [{ role: 'user', text: abertura }];
   for (const f of falas) {
     turnos.push(f.bot === bot ? { role: 'model', text: f.texto } : { role: 'user', text: `${nomeOutro}: ${f.texto}` });
@@ -88,26 +108,36 @@ function montarTurnos(bot, abertura, falas) {
   return juntos;
 }
 
-async function falarGemini(tema, turno, total, abertura, falas) {
-  const turnos = montarTurnos('gemini', abertura, falas);
+// Gemini 2: pode ter chave e modelo proprios (cota separada); senao usa os do Gemini 1
+function contaGemini(bot) {
+  if (bot !== 'gemini2') return {};
+  return {
+    chave: process.env.GEMINI_API_KEY_2 || undefined,
+    modelo: (process.env.GEMINI_MODEL_2 || '').trim() || undefined,
+  };
+}
+
+async function falarGemini({ bot, outro, tema, turno, total, abertura, falas }) {
+  const turnos = montarTurnos(bot, outro, abertura, falas);
   const atual = turnos.pop();
   const historico = turnos.map((t) => ({ role: t.role, parts: [{ text: t.text }] }));
   const { texto } = await conversar(historico, [{ text: atual.text }], {
-    instrucao: instrucaoDebate('gemini', tema, turno, total),
+    instrucao: instrucaoDebate(bot, outro, tema, turno, total),
+    ...contaGemini(bot),
   });
   return texto;
 }
 
-async function falarMistral(tema, turno, total, abertura, falas) {
-  const turnos = montarTurnos('mistral', abertura, falas);
+async function falarMistral({ bot, outro, tema, turno, total, abertura, falas }) {
+  const turnos = montarTurnos(bot, outro, abertura, falas);
   const mensagens = [
-    { role: 'system', content: instrucaoDebate('mistral', tema, turno, total) },
+    { role: 'system', content: instrucaoDebate(bot, outro, tema, turno, total) },
     ...turnos.map((t) => ({ role: t.role === 'model' ? 'assistant' : 'user', content: t.text })),
   ];
   return conversarMistral(mensagens);
 }
 
-const GERADORES = { gemini: falarGemini, mistral: falarMistral };
+const GERADORES = { gemini: falarGemini, gemini2: falarGemini, mistral: falarMistral };
 
 class ErroDebate extends Error {}
 
@@ -137,7 +167,6 @@ function criarGerenciadorDebate(io) {
   function validarInicio(tema, opcoes = {}) {
     if (atual) throw new ErroDebate(`Ja existe um debate em andamento sobre "${atual.tema}". Pare com @parar antes de comecar outro.`);
     if (!process.env.GEMINI_API_KEY) throw new ErroDebate('O debate precisa da GEMINI_API_KEY configurada no servidor.');
-    if (!mistralConfigurado()) throw new ErroDebate('O debate precisa da MISTRAL_API_KEY configurada no servidor (chave gratis em console.mistral.ai).');
 
     const temaLimpo = String(tema || '').replace(/\s+/g, ' ').trim();
     if (temaLimpo.length < 3) throw new ErroDebate('Diga o tema do debate. Ex.: @debate cachorro ou gato?');
@@ -179,7 +208,8 @@ function criarGerenciadorDebate(io) {
 
     for (let turno = 0; turno < debate.total; turno++) {
       if (debate.parado) return;
-      const bot = turno % 2 === 0 ? 'gemini' : 'mistral';
+      const bot = turno % 2 === 0 ? 'gemini' : debate.adversario;
+      const outro = bot === 'gemini' ? debate.adversario : 'gemini';
       // Primeira fala sai rapido; as outras respeitam o intervalo escolhido
       const espera = turno === 0 ? Math.min(debate.intervalo * 1000, 2000) : debate.intervalo * 1000;
 
@@ -195,7 +225,9 @@ function criarGerenciadorDebate(io) {
       // o debate espera mais um pouco e tenta outra vez, avisando a sala, antes de desistir.
       for (let rodada = 0; ; rodada++) {
         try {
-          texto = limparFala(await GERADORES[bot](debate.tema, turno, debate.total, abertura, falas));
+          texto = limparFala(
+            await GERADORES[bot]({ bot, outro, tema: debate.tema, turno, total: debate.total, abertura, falas })
+          );
           break;
         } catch (erro) {
           console.error(`[debate] ${bot} falhou (rodada ${rodada + 1}):`, erro.message);
@@ -246,6 +278,7 @@ function criarGerenciadorDebate(io) {
     if (atual) throw new ErroDebate('Ja existe um debate em andamento.');
     const debate = {
       ...config,
+      adversario: escolherAdversario(),
       gatilhoId: gatilho._id,
       usuarioId: usuario.id,
       iniciadoPor: usuario.nome,

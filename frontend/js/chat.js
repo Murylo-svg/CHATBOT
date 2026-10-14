@@ -87,7 +87,7 @@
       "</div>";
   }
 
-  // Qualquer IA que não seja o Gemini (Mistral; "llama" = falas antigas)
+  // Qualquer IA que não seja o Gemini principal (Gemini 2, Mistral; "llama" = falas antigas)
   function ehSegundaIA(bot) {
     return Boolean(bot) && bot !== "gemini";
   }
@@ -108,7 +108,7 @@
   function criarBalao(mensagem) {
     const bot = mensagem.autor === "model";
     const balao = document.createElement("div");
-    // de-usuario = minha | de-outro = outra pessoa | de-ia de-bot = IA (de-segunda-ia = Mistral)
+    // de-usuario = minha | de-outro = outra pessoa | de-ia de-bot = IA (de-segunda-ia = Gemini 2 / Mistral)
     balao.className =
       "balao " +
       (bot ? "de-ia de-bot" + (ehSegundaIA(mensagem.bot) ? " de-segunda-ia" : "") : ehMinha(mensagem) ? "de-usuario" : "de-outro");
