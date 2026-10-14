@@ -2,12 +2,16 @@
  * Sala publica em tempo real (Socket.io).
  *
  * Eventos recebidos do cliente:
- *   novaMensagem      { texto, clientId, imagem?: { dados: ArrayBuffer } }  (+ ack)
+ *   novaMensagem      { texto, clientId, imagem?: { dados: ArrayBuffer }, debate?: { turnos, intervalo } }  (+ ack)
+ *                     texto "@debate tema" abre um debate Gemini x Llama; "@parar" encerra
+ *   pararDebate       (+ ack) encerra o debate em andamento
  *
  * Eventos emitidos pelo servidor:
  *   mensagemRecebida   mensagem serializada (humana ou do 🤖 Moderador Gemini) para TODOS
  *   usuariosOnline     { total, conexoes, nomes } sempre que alguem entra ou sai
  *   moderadorDigitando { ativo } enquanto o Gemini gera uma resposta
+ *   iaDigitando        { ativo, bot, nome } durante o debate entre IAs
+ *   debateEstado       { ativo, tema, turno, total, intervalo, falando, proximaEm, motivo? }
  *   mensagensRemovidas { ids } quando alguem limpa o proprio historico (via REST)
  *   erroChat           { erro } apenas para quem causou o erro
  *   sessaoExpirada     { erro } antes de derrubar uma conexao com JWT vencido
@@ -20,6 +24,7 @@ const { validarToken } = require('../middleware/auth');
 const { verificarOrigem, origemPermitida } = require('../config/cors');
 const { enviarImagem } = require('../services/cloudinary');
 const sala = require('../services/salaPublica');
+const { criarGerenciadorDebate, ErroDebate, REGEX_DEBATE, REGEX_PARAR } = require('../services/debate');
 
 // Limite de mensagens por usuario (todas as abas somadas)
 const JANELA_RATE_MS = 10_000;
@@ -48,6 +53,7 @@ function configurarSocket(httpServer) {
   const emProcessamento = new Set(); // `${usuarioId}:${clientId}` sendo gravados agora
   const geminiPorUsuario = new Set(); // usuarios com pergunta ao Gemini em andamento
   let geminiAtivas = 0;
+  const debate = criarGerenciadorDebate(io);
 
   function emitirOnline() {
     let conexoes = 0;
@@ -74,6 +80,8 @@ function configurarSocket(httpServer) {
     if (!registro || !registro.sockets.delete(socket.id)) return;
     if (registro.sockets.size === 0) online.delete(id);
     emitirOnline();
+    // Ninguem assistindo: nao gasta cota das IAs
+    if (online.size === 0) debate.parar('Debate encerrado: todos sairam da sala.');
   }
 
   function excedeuLimite(usuarioId) {
@@ -163,6 +171,7 @@ function configurarSocket(httpServer) {
   io.on('connection', (socket) => {
     const usuario = socket.data.usuario;
     registrarOnline(socket);
+    if (debate.ativo()) socket.emit('debateEstado', debate.estadoPublico());
 
     // Derruba a conexao quando o JWT vencer, mesmo que o usuario fique parado
     let timerExpiracao = null;
@@ -204,6 +213,11 @@ function configurarSocket(httpServer) {
           throw new sala.ErroValidacao('Voce esta enviando mensagens rapido demais. Aguarde alguns segundos.');
         }
 
+        // Comandos de debate. O inicio e validado ANTES de gravar a mensagem.
+        const comandoDebate = !imagem && texto.match(REGEX_DEBATE);
+        const comandoParar = !imagem && REGEX_PARAR.test(texto);
+        const configDebate = comandoDebate ? debate.validarInicio(comandoDebate[1], dados.debate || {}) : null;
+
         const imagemUrl = imagem ? await enviarImagem(imagem.buffer, usuario.id) : null;
 
         const { mensagem, duplicada } = await sala.salvarMensagemHumana({
@@ -217,18 +231,37 @@ function configurarSocket(httpServer) {
         if (!duplicada) io.emit('mensagemRecebida', publica);
         responder({ ok: true, duplicada, mensagem: publica });
 
+        if (duplicada) return;
+
+        if (configDebate) {
+          if (debate.ativo()) socket.emit('erroChat', { erro: 'Outro debate comecou antes do seu. Tente quando ele acabar.' });
+          else debate.iniciar(mensagem, usuario, configDebate);
+          return;
+        }
+        if (comandoParar) {
+          if (!debate.parar(`${usuario.nome} parou o debate.`)) socket.emit('erroChat', { erro: 'Nao ha debate em andamento.' });
+          return;
+        }
+
         // So mensagens humanas novas com @gemini/@bot acionam a IA.
         // Respostas do bot nunca passam por aqui, entao nao ha loop bot -> bot.
-        if (!duplicada && sala.mencionaBot(texto)) {
+        if (sala.mencionaBot(texto)) {
           acionarModerador(socket, mensagem, imagem);
         }
       } catch (erro) {
-        const esperado = erro instanceof sala.ErroValidacao;
+        const esperado = erro instanceof sala.ErroValidacao || erro instanceof ErroDebate;
         if (!esperado) console.error('[socket] novaMensagem:', erro.message);
         responder({ ok: false, erro: esperado ? erro.message : 'Nao foi possivel enviar a mensagem. Tente novamente.' });
       } finally {
         if (chave) emProcessamento.delete(chave);
       }
+    });
+
+    socket.on('pararDebate', (ack) => {
+      const responder = typeof ack === 'function' ? ack : () => {};
+      if (!sessaoValida(socket)) return;
+      const parou = debate.parar(`${usuario.nome} parou o debate.`);
+      responder(parou ? { ok: true } : { ok: false, erro: 'Nao ha debate em andamento.' });
     });
 
     socket.on('disconnect', () => {

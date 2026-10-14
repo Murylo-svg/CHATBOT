@@ -10,6 +10,7 @@ const { conversar, INSTRUCAO_MODERADOR } = require('./gemini');
 
 const SALA = 'publica';
 const NOME_MODERADOR = '🤖 Moderador Gemini';
+const NOMES_BOT = { gemini: NOME_MODERADOR, llama: '🦙 Llama (Groq)' };
 const LIMITE_TEXTO = 2000; // caracteres por mensagem
 const LIMITE_IMAGEM = 5 * 1024 * 1024; // 5 MB, igual ao upload REST
 const LIMITE_CONTEXTO_IA = 20; // mensagens da sala enviadas como memoria ao Gemini
@@ -99,7 +100,9 @@ function serializar(m) {
     sala: m.sala || SALA,
     autor: m.autor,
     usuario: ehBot ? null : String(m.usuario),
-    nomeAutor: ehBot ? NOME_MODERADOR : m.nomeAutor || 'Usuario',
+    nomeAutor: ehBot ? NOMES_BOT[m.bot] || NOME_MODERADOR : m.nomeAutor || 'Usuario',
+    bot: ehBot ? m.bot || 'gemini' : null,
+    debate: m.debate ? String(m.debate) : null,
     texto: m.texto || '',
     imagemUrl: m.imagemUrl || null,
     ferramentaUsada: m.ferramentaUsada || null,
@@ -167,10 +170,17 @@ function juntarTurnos(turnos) {
   return resultado;
 }
 
+// Mensagens do proprio Gemini contam como turno 'model'; as das pessoas e as do Llama, como 'user'
+function ehDoGemini(m) {
+  return m.autor === 'model' && (m.bot || 'gemini') === 'gemini';
+}
+
 function textoParaIA(m) {
   const conteudo = (m.texto || '') + (m.imagemUrl ? (m.texto ? ' ' : '') + '[enviou uma imagem]' : '');
   if (!conteudo) return '';
-  return m.autor === 'model' ? conteudo : `${m.nomeAutor || 'Usuario'}: ${conteudo}`;
+  if (ehDoGemini(m)) return conteudo;
+  const nome = m.autor === 'model' ? NOMES_BOT[m.bot] : m.nomeAutor || 'Usuario';
+  return `${nome}: ${conteudo}`;
 }
 
 /**
@@ -189,7 +199,7 @@ async function gerarRespostaModerador(gatilho, imagem) {
   const historico = juntarTurnos(
     anteriores
       .reverse()
-      .map((m) => ({ role: m.autor, parts: [{ text: textoParaIA(m) }] }))
+      .map((m) => ({ role: ehDoGemini(m) ? 'model' : 'user', parts: [{ text: textoParaIA(m) }] }))
       .filter((t) => t.parts[0].text)
   );
 
@@ -210,6 +220,7 @@ async function gerarRespostaModerador(gatilho, imagem) {
     autor: 'model',
     sala: SALA,
     nomeAutor: NOME_MODERADOR,
+    bot: 'gemini',
     texto,
     ferramentaUsada,
     respostaA: gatilho._id,
@@ -220,6 +231,7 @@ async function gerarRespostaModerador(gatilho, imagem) {
 module.exports = {
   SALA,
   NOME_MODERADOR,
+  NOMES_BOT,
   LIMITE_TEXTO,
   LIMITE_IMAGEM,
   ErroValidacao,

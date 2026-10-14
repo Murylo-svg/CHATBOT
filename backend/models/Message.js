@@ -54,6 +54,18 @@ const mensagemSchema = new mongoose.Schema(
       ref: 'Mensagem',
       default: null,
     },
+    // Qual IA escreveu (autor 'model'): 'gemini' ou 'llama'
+    bot: {
+      type: String,
+      enum: ['gemini', 'llama', null],
+      default: null,
+    },
+    // Debate entre IAs: id da mensagem humana que abriu o debate
+    debate: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Mensagem',
+      default: null,
+    },
   },
   { timestamps: true }
 );

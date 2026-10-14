@@ -546,9 +546,79 @@ a:focus-visible {
 .aviso-chat.info { background: var(--fundo); color: var(--tinta-suave); }
 .aviso-chat.sucesso { background: var(--acento-claro); color: var(--acento); }
 
+/* ---------- Debate entre IAs ---------- */
+.balao.de-llama .corpo {
+  background: #f3effa;
+  border: 1px solid #d9cdee;
+}
+
+.balao.de-llama .remetente .nome,
+.digitando.de-llama em { color: #5b3f8c; }
+
+.painel-debate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 20px;
+  background: #f7f4fb;
+  border-bottom: 1px solid var(--linha);
+  font-size: 13.5px;
+  flex-shrink: 0;
+}
+
+.painel-debate[hidden] { display: none; }
+.debate-info { font-size: 12px; color: var(--tinta-suave); margin-top: 2px; }
+
+.dialogo-debate {
+  width: min(440px, calc(100vw - 32px));
+  border: 1px solid var(--linha);
+  border-radius: 14px;
+  padding: 22px;
+  background: var(--superficie);
+  color: var(--tinta);
+}
+
+.dialogo-debate::backdrop { background: rgba(27, 35, 32, 0.4); }
+.dialogo-debate h2 { font-size: 20px; margin-bottom: 6px; }
+.dialogo-debate p { margin: 0 0 14px; font-size: 13.5px; color: var(--tinta-suave); }
+
+.dialogo-debate label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+
+.dialogo-debate input,
+.dialogo-debate select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--linha);
+  border-radius: var(--raio);
+  background: var(--fundo);
+  color: var(--tinta);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.linha-campos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.botoes-dialogo {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.botoes-dialogo .botao-principal { width: auto; margin: 0; padding: 9px 16px; }
+
 @media (max-width: 640px) {
   .balao { max-width: 88%; }
   .topo { padding: 12px 14px; }
   .conversa { padding: 18px 14px; }
   .status { top: auto; bottom: 86px; right: 12px; }
+  .topo { flex-wrap: wrap; }
+  .acoes { flex-wrap: wrap; }
+  .painel-debate { padding: 8px 14px; }
 }

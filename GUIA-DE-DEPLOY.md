@@ -25,6 +25,10 @@ Siga na ordem. Do zero ao ar em mais ou menos 40 minutos.
 2. No Dashboard, revele o **API Environment variable**
 3. Copie o valor inteiro: `cloudinary://123456:abcdef@seu-cloud-name`
 
+### Groq (segunda IA, para o Debate de IAs)
+1. Acesse console.groq.com e entre com Google ou GitHub (não pede cartão)
+2. **API Keys** → **Create API Key** → copie (começa com `gsk_`)
+
 ### JWT_SECRET
 No terminal:
 ```bash
@@ -84,6 +88,9 @@ git commit -am "Remove .env do versionamento"
    GEMINI_API_KEY     = ...
    GEMINI_MODEL       = gemini-2.0-flash
    GEMINI_MAX_SIMULTANEAS = 3            (opcional)
+   GROQ_API_KEY       = gsk_...
+   GROQ_MODEL         = llama-3.3-70b-versatile   (opcional)
+   DEBATE_INTERVALO_SEGUNDOS = 8         (opcional)
    CLOUDINARY_URL     = cloudinary://...
    NODE_ENV           = production
    CORS_ORIGIN        = https://seu-projeto.vercel.app
@@ -192,6 +199,8 @@ Abra o chat em **duas janelas** (uma normal e uma anônima) com **contas diferen
 | 7. Reconexão | DevTools → Network → Offline na janela B, envie pela A, volte para Online | B mostra "Reconectando…" e depois recebe a mensagem uma vez só |
 | 8. Imagem | Envie uma foto com "@gemini que fruta é essa?" | A imagem aparece nas duas janelas e o bot descreve |
 | 9. Histórico | Recarregue a página | As mensagens voltam sem duplicar |
+| 11. Debate | Clique em 🎭 Debate de IAs, tema "cachorro ou gato?", 4 falas, 8 s | Gemini e Llama se alternam nas duas janelas, com contagem regressiva no painel |
+| 12. Parar debate | Comece outro debate e digite `@parar` | O painel some e nenhuma fala nova aparece |
 | 10. Limpar | Clique em "Limpar histórico" na janela A | As mensagens de A (e as respostas do bot a A) somem nas duas janelas |
 
 ---
@@ -221,6 +230,13 @@ codificados) ou Network Access fechado no Atlas.
 **A IA responde mas não usa a ferramenta de clima**
 Pergunte de forma direta: "Qual a temperatura em Tóquio agora?". Se o modelo
 não existir mais, troque `GEMINI_MODEL` para `gemini-1.5-flash`.
+
+**Debate: "O debate precisa da GROQ_API_KEY"**
+Faltou a variável `GROQ_API_KEY` no Render (ou o serviço não reiniciou depois de salvar).
+
+**Debate interrompido: "Groq: The model ... has been decommissioned"**
+A Groq troca os modelos de tempos em tempos. Veja os atuais em
+console.groq.com/docs/models e ajuste `GROQ_MODEL` no Render.
 
 **`Gemini: API key not valid`**
 A chave não foi copiada inteira, ou a API Generative Language não está ativa no

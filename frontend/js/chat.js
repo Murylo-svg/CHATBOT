@@ -23,6 +23,17 @@
   const online = document.getElementById("online");
   const onlineTotal = document.getElementById("online-total");
   const avisoChat = document.getElementById("aviso-chat");
+  const abrirDebate = document.getElementById("abrir-debate");
+  const dialogoDebate = document.getElementById("dialogo-debate");
+  const formDebate = document.getElementById("form-debate");
+  const campoTemaDebate = document.getElementById("debate-tema-campo");
+  const campoTurnos = document.getElementById("debate-turnos");
+  const campoIntervalo = document.getElementById("debate-intervalo");
+  const cancelarDebate = document.getElementById("cancelar-debate");
+  const painelDebate = document.getElementById("painel-debate");
+  const debateTema = document.getElementById("debate-tema");
+  const debateInfo = document.getElementById("debate-info");
+  const pararDebate = document.getElementById("parar-debate");
 
   const LIMITE_TEXTO = 2000;
   const LIMITE_IMAGEM = 5 * 1024 * 1024;
@@ -92,8 +103,10 @@
   function criarBalao(mensagem) {
     const bot = mensagem.autor === "model";
     const balao = document.createElement("div");
-    // de-usuario = minha | de-outro = outra pessoa | de-ia de-bot = Moderador Gemini
-    balao.className = "balao " + (bot ? "de-ia de-bot" : ehMinha(mensagem) ? "de-usuario" : "de-outro");
+    // de-usuario = minha | de-outro = outra pessoa | de-ia de-bot = IA (de-llama = Llama)
+    balao.className =
+      "balao " +
+      (bot ? "de-ia de-bot" + (mensagem.bot === "llama" ? " de-llama" : "") : ehMinha(mensagem) ? "de-usuario" : "de-outro");
 
     // Nome sempre vindo do servidor (nomeAutor), nunca digitado pelo cliente
     const cabecalho = document.createElement("div");
@@ -145,7 +158,7 @@
     if (vazio) vazio.remove();
     const rolar = forcarRolagem || pertoDoFim();
     // O indicador "digitando" fica sempre por último
-    const digitando = document.getElementById("digitando");
+    const digitando = conversa.querySelector(".digitando");
     conversa.insertBefore(elemento, digitando || null);
     if (rolar) descer();
   }
@@ -180,18 +193,21 @@
     if (!conversa.querySelector(".balao")) estadoVazio();
   }
 
-  function mostrarDigitando(ativo) {
-    let bloco = document.getElementById("digitando");
+  // chave: "moderador" (resposta a @gemini/@bot) ou "debate" (debate entre IAs)
+  function mostrarDigitando(ativo, nome = "🤖 Moderador Gemini", chave = "moderador", llama = false) {
+    let bloco = document.getElementById("digitando-" + chave);
     if (!ativo) {
       if (bloco) bloco.remove();
       return;
     }
-    if (bloco) return;
+    if (bloco) bloco.remove();
     bloco = document.createElement("div");
-    bloco.className = "digitando";
-    bloco.id = "digitando";
-    bloco.title = "🤖 Moderador Gemini está respondendo";
-    bloco.innerHTML = '<em>🤖 Moderador Gemini</em><span></span><span></span><span></span>';
+    bloco.className = "digitando" + (llama ? " de-llama" : "");
+    bloco.id = "digitando-" + chave;
+    bloco.title = nome + " está escrevendo";
+    const rotulo = document.createElement("em");
+    rotulo.textContent = nome;
+    bloco.append(rotulo, document.createElement("span"), document.createElement("span"), document.createElement("span"));
     const rolar = pertoDoFim();
     conversa.appendChild(bloco);
     if (rolar) descer();
@@ -304,6 +320,76 @@
 
   socket.on("moderadorDigitando", (dados) => mostrarDigitando(Boolean(dados && dados.ativo)));
 
+  socket.on("iaDigitando", (dados) =>
+    mostrarDigitando(Boolean(dados && dados.ativo), dados && dados.nome, "debate", dados && dados.bot === "llama")
+  );
+
+  // ---------- Debate entre IAs ----------
+  let timerDebate = null;
+
+  function atualizarPainelDebate(estado) {
+    clearInterval(timerDebate);
+    if (!estado || !estado.ativo) {
+      painelDebate.hidden = true;
+      mostrarDigitando(false, "", "debate");
+      if (estado && estado.motivo) avisar(estado.motivo, "info", 8000);
+      return;
+    }
+
+    painelDebate.hidden = false;
+    debateTema.textContent = "“" + estado.tema + "” · por " + estado.iniciadoPor;
+
+    const pintar = () => {
+      const fala = "Fala " + Math.min(estado.turno + 1, estado.total) + " de " + estado.total;
+      const faltam = estado.proximaEm ? Math.ceil((estado.proximaEm - Date.now()) / 1000) : 0;
+      const quem = estado.nomeFalando || "Próxima IA";
+      debateInfo.textContent =
+        fala + " · " + (faltam > 0 ? quem + " fala em " + faltam + "s" : quem + " está pensando…") +
+        " · " + estado.intervalo + "s entre falas";
+    };
+    pintar();
+    timerDebate = setInterval(pintar, 500);
+  }
+
+  socket.on("debateEstado", atualizarPainelDebate);
+
+  abrirDebate.addEventListener("click", () => {
+    if (!painelDebate.hidden) {
+      avisar("Já tem um debate acontecendo. Pare o atual antes de começar outro.", "info", 4000);
+      return;
+    }
+    if (typeof dialogoDebate.showModal === "function") dialogoDebate.showModal();
+    else dialogoDebate.setAttribute("open", "");
+    campoTemaDebate.focus();
+  });
+
+  cancelarDebate.addEventListener("click", () => dialogoDebate.close());
+
+  formDebate.addEventListener("submit", (evento) => {
+    evento.preventDefault();
+    const tema = campoTemaDebate.value.replace(/\s+/g, " ").trim();
+    if (tema.length < 3) {
+      campoTemaDebate.focus();
+      return;
+    }
+    dialogoDebate.close();
+    campoTemaDebate.value = "";
+    // Vira uma mensagem "@debate tema" na sala, assim todos veem quem começou
+    enviarComando("@debate " + tema, {
+      turnos: Number(campoTurnos.value),
+      intervalo: Number(campoIntervalo.value),
+    });
+  });
+
+  pararDebate.addEventListener("click", () => {
+    pararDebate.disabled = true;
+    socket.timeout(5000).emit("pararDebate", (erroTempo, resposta) => {
+      pararDebate.disabled = false;
+      if (erroTempo) return avisar("O servidor não respondeu. Tente de novo.");
+      if (!resposta.ok) avisar(resposta.erro, "info", 4000);
+    });
+  });
+
   socket.on("erroChat", (dados) => avisar((dados && dados.erro) || "Erro no chat."));
 
   socket.on("sessaoExpirada", (dados) => encerrarSessao(dados && dados.erro));
@@ -407,6 +493,18 @@
     pendentes.forEach((pendente, clientId) => transmitir(clientId));
   }
 
+  // Opções extras do próximo envio de "@debate" (vindas do formulário)
+  let opcoesDebate = null;
+
+  function enviarComando(comando, opcoes) {
+    const rascunho = texto.value;
+    texto.value = comando;
+    opcoesDebate = opcoes || null;
+    mandar().finally(() => {
+      if (rascunho && !texto.value) texto.value = rascunho;
+    });
+  }
+
   async function mandar() {
     if (enviando) return;
 
@@ -430,6 +528,8 @@
     try {
       const clientId = novoClientId();
       const payload = { texto: conteudo, clientId };
+      if (opcoesDebate && /^@debate\b/i.test(conteudo)) payload.debate = opcoesDebate;
+      opcoesDebate = null;
       let urlLocal = null;
 
       if (imagemSelecionada) {

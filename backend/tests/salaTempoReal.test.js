@@ -23,6 +23,8 @@ process.env.MONGO_URI = MONGO_URI_TESTE;
 process.env.JWT_SECRET = 'segredo-de-teste-' + Date.now();
 process.env.GEMINI_API_KEY = 'chave-falsa';
 process.env.CORS_ORIGIN = 'https://meu-app.vercel.app';
+process.env.GROQ_API_KEY = 'chave-groq-falsa';
+process.env.DEBATE_INTERVALO_MIN_SEGUNDOS = '0'; // testes rapidos
 
 // ---------- Simulacoes (antes de carregar o servidor) ----------
 const cloudinary = require('../services/cloudinary');
@@ -44,8 +46,18 @@ global.fetch = async (url, opcoes) => {
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   }
+  if (String(url).includes('api.groq.com')) {
+    const corpo = JSON.parse(opcoes.body);
+    chamadasGroq.push({ corpo, headers: opcoes.headers });
+    await new Promise((r) => setTimeout(r, 30));
+    return new Response(
+      JSON.stringify({ choices: [{ message: { role: 'assistant', content: `Llama: discordo, fala ${chamadasGroq.length}. @gemini` } }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
   return fetchOriginal(url, opcoes);
 };
+const chamadasGroq = [];
 
 const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
@@ -149,6 +161,7 @@ beforeEach(async () => {
   while (abertos.length) abertos.pop().disconnect();
   await pausa(50);
   chamadasGemini.length = 0;
+  chamadasGroq.length = 0;
   respostaGemini = 'Ola! Eu sou o moderador.';
 });
 
@@ -498,4 +511,137 @@ test('limpar historico apaga as mensagens da pessoa e as respostas do bot, avisa
   assert.ok(!ids.includes(daAna.mensagem._id));
   assert.ok(!ids.includes(doBot._id));
   assert.ok(ids.includes(doBeto.mensagem._id), 'mensagens de outras pessoas ficam');
+});
+
+// ---------- Debate entre IAs (Gemini x Llama/Groq) ----------
+function esperarFimDebate(socket, ms = 8000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('debate nao terminou')), ms);
+    socket.on('debateEstado', (e) => {
+      if (!e.ativo) {
+        clearTimeout(timer);
+        resolve(e);
+      }
+    });
+  });
+}
+
+test('@debate coloca Gemini e Llama para conversar em turnos, com intervalo, visivel para todos', async () => {
+  const ana = await cadastrar('Ana');
+  const beto = await cadastrar('Beto');
+  const sa = await conectado(cliente(ana.token));
+  const sb = await conectado(cliente(beto.token));
+  const estados = [];
+  sb.on('debateEstado', (e) => estados.push(e));
+  const chegada = [];
+  sb.on('mensagemRecebida', (m) => m.debate && chegada.push(Date.now()));
+  const fim = esperarFimDebate(sb);
+
+  respostaGemini = 'Gemini: concordo totalmente! @bot';
+  const ack = await emitir(sa, { texto: '@debate cachorro ou gato?', clientId: novoId(), debate: { turnos: 4, intervalo: 0.3 } });
+  assert.equal(ack.ok, true, ack.erro);
+
+  const final = await fim;
+  assert.match(final.motivo, /Fim do debate/);
+
+  const falas = sb.recebidas.filter((m) => m.debate === ack.mensagem._id);
+  assert.deepEqual(falas.map((m) => m.bot), ['gemini', 'llama', 'gemini', 'llama']);
+  assert.deepEqual([...new Set(falas.map((m) => m.nomeAutor))], ['🤖 Moderador Gemini', '🦙 Llama (Groq)']);
+  // O prefixo "Nome:" e as mencoes com @ sao removidos (evita loop e poluicao)
+  assert.ok(falas.every((m) => !/^(gemini|llama):/i.test(m.texto) && !m.texto.includes('@')), JSON.stringify(falas.map((m) => m.texto)));
+  assert.equal(sa.recebidas.filter((m) => m.debate === ack.mensagem._id).length, 4, 'Ana tambem viu tudo');
+
+  // Ritmo: entre uma fala e outra passa pelo menos o intervalo escolhido
+  for (let i = 1; i < chegada.length; i++) assert.ok(chegada[i] - chegada[i - 1] >= 250, `intervalo ${chegada[i] - chegada[i - 1]}ms`);
+  assert.ok(estados.some((e) => e.ativo && e.tema === 'cachorro ou gato?' && e.total === 4 && e.nomeFalando));
+
+  // Cada IA chamada 2 vezes; as falas do Gemini nao geram respostas extras (@bot foi limpo)
+  assert.equal(chamadasGemini.length, 2);
+  assert.equal(chamadasGroq.length, 2);
+
+  // O Llama recebe a fala do Gemini como 'user' e a instrucao do debate como 'system'
+  const msgsLlama = chamadasGroq[1].corpo.messages;
+  assert.equal(msgsLlama[0].role, 'system');
+  assert.match(msgsLlama[0].content, /Voce e Llama/);
+  assert.ok(msgsLlama.some((m) => m.role === 'assistant'));
+  assert.equal(msgsLlama.at(-1).role, 'user');
+  assert.match(msgsLlama.at(-1).content, /^Gemini: /);
+  assert.equal(chamadasGroq[0].headers.Authorization, 'Bearer chave-groq-falsa');
+
+  // O Gemini recebe a fala do Llama como 'user' e as proprias como 'model'
+  const contentsGemini = chamadasGemini[1].contents;
+  assert.deepEqual(contentsGemini.map((c) => c.role), ['user', 'model', 'user']);
+  assert.match(contentsGemini.at(-1).parts[0].text, /^Llama: /);
+
+  const salvas = await Mensagem.countDocuments({ debate: ack.mensagem._id });
+  assert.equal(salvas, 4);
+});
+
+test('debate: um por vez, @parar e o botao encerram, e sem GROQ_API_KEY ele nao comeca', async () => {
+  const ana = await cadastrar('Ana');
+  const beto = await cadastrar('Beto');
+  const sa = await conectado(cliente(ana.token));
+  const sb = await conectado(cliente(beto.token));
+
+  const primeiro = await emitir(sa, { texto: '@debate praia ou montanha', clientId: novoId(), debate: { turnos: 20, intervalo: 0.4 } });
+  assert.equal(primeiro.ok, true);
+
+  const segundo = await emitir(sb, { texto: '@debate outro tema', clientId: novoId() });
+  assert.equal(segundo.ok, false);
+  assert.match(segundo.erro, /Ja existe um debate/);
+
+  await esperar(() => sb.recebidas.some((m) => m.debate === primeiro.mensagem._id));
+  const fim = esperarFimDebate(sa);
+  const parar = await emitir(sb, { texto: '@parar', clientId: novoId() });
+  assert.equal(parar.ok, true);
+  const estado = await fim;
+  assert.match(estado.motivo, /Beto parou o debate/);
+
+  const quantas = sb.recebidas.filter((m) => m.debate).length;
+  await pausa(1000);
+  assert.equal(sb.recebidas.filter((m) => m.debate).length, quantas, 'nenhuma fala depois de parar');
+
+  // Botao "Parar" (evento pararDebate)
+  const terceiro = await emitir(sb, { texto: '@debate cafe ou cha', clientId: novoId(), debate: { turnos: 20, intervalo: 0.4 } });
+  assert.equal(terceiro.ok, true);
+  const fim2 = esperarFimDebate(sa);
+  const ackParar = await sa.timeout(3000).emitWithAck('pararDebate');
+  assert.equal(ackParar.ok, true);
+  assert.match((await fim2).motivo, /Ana parou o debate/);
+  assert.equal((await sa.timeout(3000).emitWithAck('pararDebate')).ok, false);
+
+  // Sem chave da Groq
+  const chave = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = '';
+  try {
+    const semChave = await emitir(sa, { texto: '@debate sem chave', clientId: novoId() });
+    assert.equal(semChave.ok, false);
+    assert.match(semChave.erro, /GROQ_API_KEY/);
+  } finally {
+    process.env.GROQ_API_KEY = chave;
+  }
+
+  const semTema = await emitir(sa, { texto: '@debate', clientId: novoId() });
+  assert.equal(semTema.ok, false);
+  assert.match(semTema.erro, /tema/);
+});
+
+test('debate para sozinho quando todo mundo sai da sala', async () => {
+  await pausa(100);
+  const ana = await cadastrar('Ana');
+  const sa = await conectado(cliente(ana.token));
+  const ack = await emitir(sa, { texto: '@debate quem chegou primeiro, o ovo ou a galinha', clientId: novoId(), debate: { turnos: 20, intervalo: 0.3 } });
+  assert.equal(ack.ok, true);
+  await esperar(() => sa.recebidas.some((m) => m.debate));
+  // fecha todas as conexoes abertas pelos testes
+  while (abertos.length) abertos.pop().disconnect();
+  await pausa(800);
+  const total = await Mensagem.countDocuments({ debate: ack.mensagem._id });
+  await pausa(800);
+  assert.equal(await Mensagem.countDocuments({ debate: ack.mensagem._id }), total, 'parou de gerar falas');
+
+  // e um novo debate ja pode comecar
+  const sb = await conectado(cliente(ana.token));
+  const novo = await emitir(sb, { texto: '@debate novo tema', clientId: novoId(), debate: { turnos: 2, intervalo: 0 } });
+  assert.equal(novo.ok, true, novo.erro);
 });
