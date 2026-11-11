@@ -5,6 +5,8 @@
  *   novaMensagem      { texto, clientId, imagem?: { dados: ArrayBuffer }, debate?: { turnos, intervalo } }  (+ ack)
  *                     texto "@debate tema" abre um debate entre IAs; "@parar" encerra
  *   pararDebate       (+ ack) encerra o debate em andamento
+ *   entrarPainelAdmin (+ ack) dashboard pede para receber eventos administrativos;
+ *                     o role e conferido no MongoDB (403 para quem nao e admin)
  *
  * Eventos emitidos pelo servidor:
  *   mensagemRecebida   mensagem serializada (humana ou do 🤖 Moderador Gemini) para TODOS
@@ -15,15 +17,21 @@
  *   mensagensRemovidas { ids } quando alguem limpa o proprio historico (via REST)
  *   erroChat           { erro } apenas para quem causou o erro
  *   sessaoExpirada     { erro } antes de derrubar uma conexao com JWT vencido
+ *   novoGastoDeToken   (quantidade, detalhes) SO para a sala "admins" (dashboard),
+ *                      depois que uma resposta do Gemini e gravada com tokensGastos
+ *   painelAdminNegado  { erro } quando um admin perde o papel com o painel aberto
+ *
+ * Conexoes do dashboard usam auth.painel = 'admin': nao entram no contador de online.
  */
 const { Server } = require('socket.io');
 const mongoose = require('mongoose');
 
-const Usuario = require('../models/User');
-const { validarToken } = require('../middleware/auth');
+const Usuario = require('../models/Usuario');
+const { validarToken } = require('../middlewares/auth');
 const { verificarOrigem, origemPermitida } = require('../config/cors');
 const { enviarImagem } = require('../services/cloudinary');
 const sala = require('../services/salaPublica');
+const chatController = require('../controllers/chatController');
 const { criarGerenciadorDebate, ErroDebate, REGEX_DEBATE, REGEX_PARAR } = require('../services/debate');
 
 // Limite de mensagens por usuario (todas as abas somadas)
@@ -31,6 +39,9 @@ const JANELA_RATE_MS = 10_000;
 const MAX_MENSAGENS_JANELA = 8;
 // Quantas respostas do Gemini podem estar em andamento ao mesmo tempo no servidor
 const MAX_GEMINI_SIMULTANEAS = Number(process.env.GEMINI_MAX_SIMULTANEAS) || 3;
+// De quanto em quanto tempo a sala "admins" e conferida de novo no banco
+const REVALIDAR_ADMINS_MS = Number(process.env.REVALIDAR_ADMINS_MS) || 60_000;
+const { SALA_ADMINS } = chatController;
 
 function erroDeConexao(mensagem, codigo) {
   const erro = new Error(mensagem);
@@ -54,6 +65,34 @@ function configurarSocket(httpServer) {
   const geminiPorUsuario = new Set(); // usuarios com pergunta ao Gemini em andamento
   let geminiAtivas = 0;
   const debate = criarGerenciadorDebate(io);
+  // O evento novoGastoDeToken usa este mesmo servidor Socket.io (sem um segundo servidor)
+  chatController.definirSocketIO(io);
+
+  /** Confere no banco se o usuario e admin AGORA (o JWT nao carrega o papel). */
+  async function ehAdminNoBanco(usuarioId) {
+    const atual = await Usuario.findById(usuarioId).select('role').lean();
+    return Boolean(atual && atual.role === 'admin');
+  }
+
+  // Quem perdeu o papel de admin com o painel aberto sai da sala administrativa
+  async function revalidarSalaAdmins() {
+    const sockets = await io.in(SALA_ADMINS).fetchSockets();
+    if (!sockets.length) return;
+    const ids = [...new Set(sockets.map((s) => s.data.usuario.id))];
+    const admins = await Usuario.find({ _id: { $in: ids }, role: 'admin' }).select('_id').lean();
+    const aindaAdmins = new Set(admins.map((u) => String(u._id)));
+    for (const s of sockets) {
+      if (!aindaAdmins.has(s.data.usuario.id)) {
+        s.leave(SALA_ADMINS);
+        s.emit('painelAdminNegado', { erro: 'Seu acesso de administrador foi removido.' });
+      }
+    }
+  }
+  const timerAdmins = setInterval(() => {
+    revalidarSalaAdmins().catch((erro) => console.error('[socket] revalidar admins:', erro.message));
+  }, REVALIDAR_ADMINS_MS);
+  timerAdmins.unref();
+  io.revalidarSalaAdmins = revalidarSalaAdmins; // usado nos testes
 
   function emitirOnline() {
     let conexoes = 0;
@@ -130,6 +169,8 @@ function configurarSocket(httpServer) {
 
       socket.data.usuario = { id: String(usuario._id), nome: usuario.nome };
       socket.data.exp = payload.exp || null;
+      // Conexao do dashboard: nao aparece como pessoa online na sala
+      socket.data.painel = socket.handshake.auth.painel === 'admin';
       return next();
     } catch (erro) {
       console.error('[socket] falha ao consultar usuario:', erro.message);
@@ -155,7 +196,7 @@ function configurarSocket(httpServer) {
     io.emit('moderadorDigitando', { ativo: true });
 
     try {
-      const resposta = await sala.gerarRespostaModerador(gatilho, imagem);
+      const resposta = await chatController.responderMencaoGemini(gatilho, imagem);
       io.emit('mensagemRecebida', sala.serializar(resposta));
     } catch (erro) {
       console.error('[socket] Gemini falhou:', erro.message);
@@ -170,8 +211,10 @@ function configurarSocket(httpServer) {
   // ---------- Conexao autenticada ----------
   io.on('connection', (socket) => {
     const usuario = socket.data.usuario;
-    registrarOnline(socket);
-    if (debate.ativo()) socket.emit('debateEstado', debate.estadoPublico());
+    if (!socket.data.painel) {
+      registrarOnline(socket);
+      if (debate.ativo()) socket.emit('debateEstado', debate.estadoPublico());
+    }
 
     // Derruba a conexao quando o JWT vencer, mesmo que o usuario fique parado
     let timerExpiracao = null;
@@ -262,6 +305,23 @@ function configurarSocket(httpServer) {
       if (!sessaoValida(socket)) return;
       const parou = debate.parar(`${usuario.nome} parou o debate.`);
       responder(parou ? { ok: true } : { ok: false, erro: 'Nao ha debate em andamento.' });
+    });
+
+    // Dashboard: so entra na sala "admins" quem e admin no banco neste momento
+    socket.on('entrarPainelAdmin', async (ack) => {
+      const responder = typeof ack === 'function' ? ack : () => {};
+      if (!sessaoValida(socket)) return;
+      try {
+        if (await ehAdminNoBanco(usuario.id)) {
+          socket.join(SALA_ADMINS);
+          return responder({ ok: true });
+        }
+        socket.leave(SALA_ADMINS);
+        return responder({ ok: false, status: 403, erro: 'Acesso negado: apenas administradores.' });
+      } catch (erro) {
+        console.error('[socket] entrarPainelAdmin:', erro.message);
+        return responder({ ok: false, status: 500, erro: 'Nao foi possivel validar o acesso agora.' });
+      }
     });
 
     socket.on('disconnect', () => {

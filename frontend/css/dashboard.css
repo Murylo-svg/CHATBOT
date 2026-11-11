@@ -1,0 +1,282 @@
+/* ============================================================
+   Painel administrativo (dashboard.html)
+   Usa as variáveis de css/style.css (mesma identidade do chat)
+   ============================================================ */
+
+body.pagina-painel { min-height: 100%; height: auto; }
+
+.painel {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+}
+
+.painel-topo {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 22px;
+}
+
+.painel-topo h1 { font-size: 28px; }
+
+.painel-sub {
+  margin: 4px 0 0;
+  color: var(--tinta-suave);
+  font-size: 14px;
+}
+
+.painel-acoes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Reaproveita o "pill" .conexao do chat (style.css) com um respiro maior */
+.painel-acoes .conexao { padding: 5px 11px; font-size: 12.5px; }
+
+/* ---------- Filtros ---------- */
+.painel-filtros {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.segmentado {
+  display: inline-flex;
+  padding: 3px;
+  background: var(--superficie);
+  border: 1px solid var(--linha);
+  border-radius: 999px;
+}
+
+.segmentado button {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--tinta-suave);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.segmentado button.ativo { background: var(--tinta); color: #f2f5f2; }
+
+.painel-atualizacao {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--tinta-suave);
+}
+
+.aviso-painel {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: var(--raio);
+  font-size: 13.5px;
+}
+
+.aviso-painel[hidden] { display: none; }
+.aviso-painel.erro { background: #fbeceb; color: var(--alerta); }
+.aviso-painel.info { background: var(--superficie); color: var(--tinta-suave); border: 1px solid var(--linha); }
+
+/* ---------- Cards ---------- */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.card {
+  position: relative;
+  padding: 16px 18px;
+  background: var(--superficie);
+  border: 1px solid var(--linha);
+  border-radius: 14px;
+  min-width: 0;
+}
+
+.card h2 {
+  font-family: var(--fonte-corpo);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--tinta-suave);
+  letter-spacing: 0;
+}
+
+.card .valor {
+  margin: 8px 0 4px;
+  font-family: var(--fonte-titulo);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.card .detalhe {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--tinta-suave);
+}
+
+.card.destaque { border-color: #b9d6c4; box-shadow: inset 0 3px 0 var(--acento); }
+
+.card.pulso { animation: pulso 1.2s ease-out; }
+
+@keyframes pulso {
+  0% { background: var(--acento-claro); }
+  100% { background: var(--superficie); }
+}
+
+/* ---------- Gráficos ---------- */
+.grafico-bloco {
+  padding: 18px 18px 14px;
+  background: var(--superficie);
+  border: 1px solid var(--linha);
+  border-radius: 14px;
+  min-width: 0;
+}
+
+.grafico-bloco.principal { margin-bottom: 14px; }
+
+.grafico-cabecalho {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.grafico-cabecalho h2 { font-size: 17px; }
+
+.grafico-cabecalho p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--tinta-suave);
+}
+
+.grafico-area { position: relative; height: 220px; }
+.grafico-area.alto { height: 300px; }
+
+.graficos-secundarios {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+/* ---------- Carregando (skeleton) ---------- */
+.carregando .valor,
+.carregando .detalhe,
+.grafico-area.carregando canvas { visibility: hidden; }
+
+.card.carregando::after,
+.grafico-area.carregando::after {
+  content: "";
+  position: absolute;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--fundo) 0%, #f6f8f5 50%, var(--fundo) 100%);
+  background-size: 200% 100%;
+  animation: brilho 1.3s linear infinite;
+}
+
+.card.carregando::after { left: 18px; right: 40%; top: 40px; height: 34px; }
+.grafico-area.carregando::after { inset: 8px 0 0; }
+
+@keyframes brilho {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card.pulso,
+  .card.carregando::after,
+  .grafico-area.carregando::after { animation: none; }
+}
+
+/* ---------- Tabela ---------- */
+.tabela-dados {
+  background: var(--superficie);
+  border: 1px solid var(--linha);
+  border-radius: 14px;
+  padding: 12px 18px;
+}
+
+.tabela-dados summary {
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--tinta-suave);
+}
+
+.tabela-rolagem { overflow-x: auto; margin-top: 10px; }
+
+.tabela-dados table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabela-dados th,
+.tabela-dados td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--linha);
+  white-space: nowrap;
+}
+
+.tabela-dados th:first-child { text-align: left; font-weight: 500; }
+.tabela-dados thead th { color: var(--tinta-suave); font-weight: 600; font-size: 12px; }
+
+.painel-rodape {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--tinta-suave);
+}
+
+/* ---------- Acesso negado ---------- */
+.acesso-negado {
+  max-width: 420px;
+  margin: 60px auto;
+  padding: 28px;
+  text-align: center;
+  background: var(--superficie);
+  border: 1px solid var(--linha);
+  border-radius: 14px;
+}
+
+.acesso-negado[hidden] { display: none; }
+.acesso-negado h2 { font-size: 22px; margin-bottom: 8px; }
+.acesso-negado p { color: var(--tinta-suave); margin: 0 0 18px; }
+.acesso-negado .botao-principal { display: inline-block; text-decoration: none; width: auto; padding: 10px 18px; }
+
+main[hidden] { display: none; }
+
+/* ---------- Responsivo ---------- */
+@media (max-width: 900px) {
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .graficos-secundarios { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 520px) {
+  .painel { padding: 18px 16px 40px; }
+  .painel-topo h1 { font-size: 23px; }
+  .cards { gap: 10px; }
+  .card { padding: 13px 14px; }
+  .card .valor { font-size: 24px; }
+  .grafico-area.alto { height: 240px; }
+  .grafico-area { height: 200px; }
+  .painel-acoes .conexao { order: -1; }
+  /* A pílula de saúde da API cobriria os gráficos; aqui o "Ao vivo" já mostra a conexão */
+  .pagina-painel .status { display: none; }
+}

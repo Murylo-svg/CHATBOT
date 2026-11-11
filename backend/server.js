@@ -10,6 +10,7 @@ const configurarSocket = require('./socket');
 const rotasHealth = require('./routes/health');
 const rotasAuth = require('./routes/auth');
 const rotasChat = require('./routes/chat');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 
 const app = express();
 const PORTA = process.env.PORT || 3000;
@@ -40,6 +41,10 @@ app.use('/api/auth', rotasAuth);
 // ---------- ROTAS PROTEGIDAS ----------
 // O middleware de JWT é aplicado dentro de routes/chat.js
 app.use('/api/chat', rotasChat);
+
+// ---------- ROTAS ADMINISTRATIVAS (JWT + role admin, checados nas proprias rotas) ----------
+// GET /api/analytics/tokens
+app.use('/api/analytics', analyticsRoutes);
 
 // ---------- 404 ----------
 app.use((req, res) => {

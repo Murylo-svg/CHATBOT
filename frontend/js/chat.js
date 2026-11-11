@@ -42,6 +42,21 @@
   const usuario = Sessao.usuario();
   quem.textContent = usuario ? usuario.nome + " · " + usuario.email : "";
 
+  // Link do painel só para administradores. É só conveniência: quem protege os
+  // dados é a API (/api/analytics exige JWT + role admin conferido no banco).
+  const linkPainel = document.getElementById("link-painel");
+  function mostrarLinkPainel(dadosUsuario) {
+    if (linkPainel) linkPainel.hidden = !(dadosUsuario && dadosUsuario.role === "admin");
+  }
+  mostrarLinkPainel(usuario);
+  chamarApi("/api/auth/me")
+    .then((dados) => {
+      if (!dados || !dados.usuario) return;
+      Sessao.salvar(Sessao.token(), dados.usuario); // atualiza o role salvo no navegador
+      mostrarLinkPainel(dados.usuario);
+    })
+    .catch(() => {});
+
   let imagemSelecionada = null;
   let enviando = false;
   let historicoPronto = false;

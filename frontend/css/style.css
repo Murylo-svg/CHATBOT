@@ -622,3 +622,13 @@ a:focus-visible {
   .acoes { flex-wrap: wrap; }
   .painel-debate { padding: 8px 14px; }
 }
+
+/* Link com cara de botão (ex.: "📊 Painel" no chat) */
+a.botao-fraco {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--raio);
+  text-decoration: none;
+}
+
+a.botao-fraco[hidden] { display: none; }

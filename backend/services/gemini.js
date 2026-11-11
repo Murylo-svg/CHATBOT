@@ -61,13 +61,41 @@ async function chamarGemini(contents, instrucao = INSTRUCAO_SISTEMA, conta = {})
   const modelo = conta.modelo || MODELO;
   const chave = conta.chave || process.env.GEMINI_API_KEY;
   try {
-    return await comNovasTentativas(() => chamarGeminiUmaVez(contents, instrucao, modelo, chave), { rotulo: 'Gemini' });
+    const dados = await comNovasTentativas(() => chamarGeminiUmaVez(contents, instrucao, modelo, chave), { rotulo: 'Gemini' });
+    return { dados, modelo };
   } catch (erro) {
     const reserva = process.env.GEMINI_MODEL_RESERVA;
     if (!erro.temporario || !reserva || reserva === modelo) throw erro;
     console.warn(`[Gemini] ${modelo} indisponivel, usando o modelo reserva ${reserva}.`);
-    return chamarGeminiUmaVez(contents, instrucao, reserva, chave);
+    return { dados: await chamarGeminiUmaVez(contents, instrucao, reserva, chave), modelo: reserva };
   }
+}
+
+// Campos numericos do usageMetadata que a API REST do Gemini devolve
+const CAMPOS_USO = [
+  'promptTokenCount',
+  'candidatesTokenCount',
+  'thoughtsTokenCount',
+  'toolUsePromptTokenCount',
+  'cachedContentTokenCount',
+  'totalTokenCount',
+];
+
+/**
+ * Soma o usageMetadata de uma chamada ao acumulado da conversa.
+ * Com function calling (clima) a IA faz ate 3 chamadas reais, e todas sao cobradas.
+ * So entram numeros validos vindos da API; nada e estimado.
+ */
+function acumularUso(acumulado, usageMetadata) {
+  if (!usageMetadata || typeof usageMetadata !== 'object') return acumulado;
+  const valido = (v) => Number.isInteger(v) && v >= 0;
+  if (!valido(usageMetadata.totalTokenCount)) return acumulado;
+
+  const resultado = acumulado || {};
+  for (const campo of CAMPOS_USO) {
+    if (valido(usageMetadata[campo])) resultado[campo] = (resultado[campo] || 0) + usageMetadata[campo];
+  }
+  return resultado;
 }
 
 async function chamarGeminiUmaVez(contents, instrucao, modelo, chave) {
@@ -130,24 +158,34 @@ async function chamarGeminiUmaVez(contents, instrucao, modelo, chave) {
  * @param {string} [opcoes.instrucao]  instrucao de sistema (padrao: assistente pessoal)
  * @param {string} [opcoes.chave]  chave da API (padrao: GEMINI_API_KEY)
  * @param {string} [opcoes.modelo]  modelo (padrao: GEMINI_MODEL)
- * @returns {Promise<{texto: string, ferramentaUsada: string|null}>}
+ * @returns {Promise<{texto: string, ferramentaUsada: string|null, modelo: string,
+ *   response: {usageMetadata: object|null}}>}
+ *   `response.usageMetadata` segue o formato do SDK oficial (result.response.usageMetadata),
+ *   com o consumo REAL informado pelo Google (null se a API nao mandou metadados).
  */
 async function conversar(historico, partesAtuais, opcoes = {}) {
   const instrucao = opcoes.instrucao || INSTRUCAO_SISTEMA;
   const contents = [...historico, { role: 'user', parts: partesAtuais }];
 
   let ferramentaUsada = null;
+  let usageMetadata = null;
+  let modeloUsado = opcoes.modelo || MODELO;
   const MAX_VOLTAS = 3; // evita loop infinito de function calling
 
+  // Mesmo formato do resultado do SDK: result.response.usageMetadata
+  const resultado = (texto) => ({ texto, ferramentaUsada, modelo: modeloUsado, response: { usageMetadata } });
+
   for (let volta = 0; volta < MAX_VOLTAS; volta++) {
-    const dados = await chamarGemini(contents, instrucao, { chave: opcoes.chave, modelo: opcoes.modelo });
+    const { dados, modelo } = await chamarGemini(contents, instrucao, { chave: opcoes.chave, modelo: opcoes.modelo });
+    modeloUsado = modelo;
+    usageMetadata = acumularUso(usageMetadata, dados.usageMetadata);
 
     const candidato = dados.candidates?.[0];
 
     if (!candidato) {
       const bloqueio = dados.promptFeedback?.blockReason;
-      if (bloqueio) return { texto: `Nao consegui responder: o conteudo foi bloqueado (${bloqueio}).`, ferramentaUsada };
-      return { texto: 'Nao recebi resposta do modelo. Tente novamente.', ferramentaUsada };
+      if (bloqueio) return resultado(`Nao consegui responder: o conteudo foi bloqueado (${bloqueio}).`);
+      return resultado('Nao recebi resposta do modelo. Tente novamente.');
     }
 
     const partes = candidato.content?.parts || [];
@@ -159,7 +197,7 @@ async function conversar(historico, partesAtuais, opcoes = {}) {
         .map((p) => p.text || '')
         .join('')
         .trim();
-      return { texto: texto || 'Nao consegui gerar uma resposta.', ferramentaUsada };
+      return resultado(texto || 'Nao consegui gerar uma resposta.');
     }
 
     // Registra o turno do modelo (com a functionCall) no historico da chamada
@@ -184,10 +222,7 @@ async function conversar(historico, partesAtuais, opcoes = {}) {
     contents.push({ role: 'user', parts: respostas });
   }
 
-  return {
-    texto: 'Nao consegui concluir a consulta apos varias tentativas. Tente reformular a pergunta.',
-    ferramentaUsada,
-  };
+  return resultado('Nao consegui concluir a consulta apos varias tentativas. Tente reformular a pergunta.');
 }
 
 module.exports = { conversar, INSTRUCAO_MODERADOR };

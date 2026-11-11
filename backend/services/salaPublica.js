@@ -5,8 +5,7 @@
  * Fica separado do socket/ para poder ser reutilizado pelas rotas REST
  * (historico inicial) e testado sem precisar de uma conexao WebSocket.
  */
-const Mensagem = require('../models/Message');
-const { conversar, INSTRUCAO_MODERADOR } = require('./gemini');
+const Mensagem = require('../models/Mensagem');
 
 const SALA = 'publica';
 const NOME_MODERADOR = '🤖 Moderador Gemini';
@@ -190,13 +189,15 @@ function textoParaIA(m) {
 }
 
 /**
- * Pede ao Gemini a resposta para uma mensagem que mencionou o bot e grava.
- * A memoria da IA sao as ultimas mensagens da propria sala.
+ * Contexto (memoria) para o Gemini responder a uma mencao na sala:
+ * as ultimas mensagens da propria sala, no formato do Gemini.
+ * A chamada a IA e a gravacao ficam em controllers/chatController.js.
  *
  * @param {object} gatilho  mensagem humana (lean) que mencionou o bot
  * @param {{buffer: Buffer, mimeType: string}|null} imagem  anexo da mensagem, se houver
+ * @returns {Promise<{historico: Array, partesAtuais: Array}>}
  */
-async function gerarRespostaModerador(gatilho, imagem) {
+async function montarContextoModerador(gatilho, imagem) {
   const anteriores = await Mensagem.find({ sala: SALA, createdAt: { $lte: gatilho.createdAt }, _id: { $ne: gatilho._id } })
     .sort({ createdAt: -1, _id: -1 })
     .limit(LIMITE_CONTEXTO_IA)
@@ -217,21 +218,7 @@ async function gerarRespostaModerador(gatilho, imagem) {
     text: `${gatilho.nomeAutor}: ${gatilho.texto || 'Descreva esta imagem.'}`,
   });
 
-  const { texto, ferramentaUsada } = await conversar(historico, partesAtuais, {
-    instrucao: INSTRUCAO_MODERADOR,
-  });
-
-  const doc = await Mensagem.create({
-    usuario: gatilho.usuario,
-    autor: 'model',
-    sala: SALA,
-    nomeAutor: NOME_MODERADOR,
-    bot: 'gemini',
-    texto,
-    ferramentaUsada,
-    respostaA: gatilho._id,
-  });
-  return doc.toObject();
+  return { historico, partesAtuais };
 }
 
 module.exports = {
@@ -249,6 +236,6 @@ module.exports = {
   buscarHistorico,
   buscarDuplicada,
   salvarMensagemHumana,
-  gerarRespostaModerador,
+  montarContextoModerador,
   juntarTurnos,
 };

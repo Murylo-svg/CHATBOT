@@ -91,6 +91,7 @@ git commit -am "Remove .env do versionamento"
    GEMINI_API_KEY     = ...
    GEMINI_MODEL       = gemini-2.0-flash
    GEMINI_MAX_SIMULTANEAS = 3            (opcional)
+   ANALYTICS_TIMEZONE = America/Sao_Paulo         (opcional, fuso dos gráficos do painel)
    GEMINI_API_KEY_2   = ...                       (opcional, outra chave do Gemini)
    GEMINI_MODEL_2     = ...                       (opcional, outro modelo do Gemini)
    MISTRAL_API_KEY    = ...                       (opcional, troca o Gemini 2 pelo Mistral)
@@ -207,6 +208,26 @@ Abra o chat em **duas janelas** (uma normal e uma anônima) com **contas diferen
 | 11. Debate | Clique em 🎭 Debate de IAs, tema "cachorro ou gato?", 4 falas, 8 s | Gemini e Gemini 2 (ou Mistral) se alternam nas duas janelas, com contagem regressiva no painel |
 | 12. Parar debate | Comece outro debate e digite `@parar` | O painel some e nenhuma fala nova aparece |
 | 10. Limpar | Clique em "Limpar histórico" na janela A | As mensagens de A (e as respostas do bot a A) somem nas duas janelas |
+
+### Testes do painel administrativo (RBAC + analytics)
+
+Antes: faça o deploy, entre com **duas contas** (A = você, B = outra) e promova **só a
+conta A** a admin (README → "Como virar administrador"). Saia e entre de novo com A.
+
+| Teste | Como fazer | Esperado |
+|---|---|---|
+| API sem token | `curl -i https://SUA-API.onrender.com/api/analytics/tokens` | `401` |
+| API com usuário comum | No navegador de B: F12 → Console → `chamarApi("/api/analytics/tokens").catch(e => console.log(e.status, e.message))` | `403 Acesso negado: apenas administradores.` |
+| API com admin | Mesmo comando no navegador de A | Objeto com `totalTokens`, `totalMensagens`, `totalUsuarios`, `tokensPorDia`... |
+| Cadastro não vira admin | No Atlas, abra o documento da conta B | `role: "user"` |
+| Link do painel | Abra o chat com A e com B | Só A vê **📊 Painel** |
+| Página protegida | Com B, abra `/dashboard.html` direto | "Acesso restrito", nenhum número aparece |
+| Dashboard | Com A, clique em **📊 Painel** | Cards, 3 gráficos e "Ao vivo" em verde |
+| Tokens gravados | Mande `@gemini oi` no chat; no Atlas abra a resposta do bot em `mensagens` | Campo `tokensGastos` maior que 0 |
+| Tempo real | Deixe o painel aberto com A e mande `@gemini oi` pelo chat de B | O card "Tokens consumidos" pisca e soma, sem F5 |
+| Sem duplicar | DevTools → Network → Offline no painel por alguns segundos e volte | Mostra "Reconectando…", volta "Ao vivo" e o total não muda |
+| Celular | Abra o painel no celular (ou DevTools → modo celular) | Cards em 2 colunas, gráficos um embaixo do outro |
+| Rebaixar | No Atlas, troque o `role` de A para `"user"` e clique em **Atualizar** no painel | "Acesso restrito" (o papel vem do banco a cada requisição) |
 
 ---
 
