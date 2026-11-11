@@ -10,10 +10,11 @@
  * - qualquer pessoa da sala pode parar (@parar ou botao);
  * - para sozinho se todo mundo sair da sala ou se uma das IAs falhar.
  */
-const Mensagem = require('../models/Message');
+const Mensagem = require('../models/Mensagem');
 const { conversar } = require('./gemini');
 const { conversarMistral, mistralConfigurado } = require('./mistral');
 const sala = require('./salaPublica');
+const { extrairTokensGastos, registrarGastoDeToken } = require('../controllers/chatController');
 
 const num = (valor, padrao) => (Number.isFinite(Number(valor)) && valor !== '' && valor != null ? Number(valor) : padrao);
 
@@ -121,11 +122,12 @@ async function falarGemini({ bot, outro, tema, turno, total, abertura, falas }) 
   const turnos = montarTurnos(bot, outro, abertura, falas);
   const atual = turnos.pop();
   const historico = turnos.map((t) => ({ role: t.role, parts: [{ text: t.text }] }));
-  const { texto } = await conversar(historico, [{ text: atual.text }], {
+  const result = await conversar(historico, [{ text: atual.text }], {
     instrucao: instrucaoDebate(bot, outro, tema, turno, total),
     ...contaGemini(bot),
   });
-  return texto;
+  // Consumo real do Gemini (Gemini 1 e Gemini 2), gravado junto com a fala
+  return { texto: result.texto, consumo: extrairTokensGastos(result) };
 }
 
 async function falarMistral({ bot, outro, tema, turno, total, abertura, falas }) {
@@ -134,7 +136,8 @@ async function falarMistral({ bot, outro, tema, turno, total, abertura, falas })
     { role: 'system', content: instrucaoDebate(bot, outro, tema, turno, total) },
     ...turnos.map((t) => ({ role: t.role === 'model' ? 'assistant' : 'user', content: t.text })),
   ];
-  return conversarMistral(mensagens);
+  // O dashboard monitora o Google Gemini: falas do Mistral nao entram no consumo
+  return { texto: await conversarMistral(mensagens), consumo: null };
 }
 
 const GERADORES = { gemini: falarGemini, gemini2: falarGemini, mistral: falarMistral };
@@ -221,13 +224,14 @@ function criarGerenciadorDebate(io) {
 
       const inicio = Date.now();
       let texto;
+      let consumo = null;
       // As APIs ja tentam de novo rapidamente. Se a IA continuar ocupada ("high demand"),
       // o debate espera mais um pouco e tenta outra vez, avisando a sala, antes de desistir.
       for (let rodada = 0; ; rodada++) {
         try {
-          texto = limparFala(
-            await GERADORES[bot]({ bot, outro, tema: debate.tema, turno, total: debate.total, abertura, falas })
-          );
+          const fala = await GERADORES[bot]({ bot, outro, tema: debate.tema, turno, total: debate.total, abertura, falas });
+          texto = limparFala(fala.texto);
+          consumo = fala.consumo;
           break;
         } catch (erro) {
           console.error(`[debate] ${bot} falhou (rodada ${rodada + 1}):`, erro.message);
@@ -259,7 +263,9 @@ function criarGerenciadorDebate(io) {
         texto,
         debate: debate.gatilhoId,
         respostaA: debate.gatilhoId,
+        ...consumo,
       });
+      registrarGastoDeToken(doc, 'debate');
       if (debate.parado) return;
 
       falas.push({ bot, texto });

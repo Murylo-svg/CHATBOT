@@ -27,6 +27,10 @@ conversa quando alguém escreve `@gemini` ou `@bot`.
 | 🔁 **Sem duplicatas** | Cada envio tem um `clientId`; reenvios após reconexão não duplicam no banco nem na tela |
 | 🧹 **Limpar histórico** | Apaga do banco as suas mensagens e as respostas do bot a você, e some da tela de todos |
 | 🩺 **Health check** | Rota pública que testa o banco e alimenta a luz do front |
+| 🛡️ **RBAC** | Papéis `user` e `admin` no MongoDB; rotas administrativas exigem JWT **e** `role: "admin"` conferido no banco |
+| 📊 **Painel administrativo** | `dashboard.html` com Chart.js: usuários, mensagens, tokens do Gemini, média por resposta, por dia e por hora |
+| 🔢 **Tokens do Gemini** | Cada resposta guarda `tokensGastos` (do `usageMetadata` real do Google) e o painel soma no MongoDB (`$group` + `$sum`) |
+| 📡 **Painel ao vivo** | Evento `novoGastoDeToken` só para a sala de administradores; os gráficos sobem sem F5 |
 
 ---
 
@@ -52,14 +56,22 @@ conversa quando alguém escreve `@gemini` ou `@bot`.
 │   ├── config/
 │   │   ├── db.js               conexão com o MongoDB
 │   │   └── cors.js             (novo) regra de CORS única para Express e Socket.io
-│   ├── middleware/auth.js      valida o token JWT (HTTP e handshake do socket)
+│   │   └── fusoHorario.js      fuso dos agrupamentos por dia/hora do painel
+│   ├── middlewares/
+│   │   ├── auth.js             verificarToken (JWT) e autenticarToken (JWT + role do banco)
+│   │   └── apenasAdmin.js      RBAC: só role "admin" passa (senão 403)
 │   ├── models/
-│   │   ├── User.js             usuário
-│   │   └── Message.js          mensagem (privada ou da sala pública)
+│   │   ├── Usuario.js          usuário (com role "user" | "admin")
+│   │   └── Mensagem.js         mensagem (com tokensGastos, entrada/saída e modelo)
+│   ├── controllers/
+│   │   ├── chatController.js   chat privado, resposta ao @gemini, captura de tokens e novoGastoDeToken
+│   │   └── analyticsController.js  Aggregation Pipeline do painel
 │   ├── routes/
 │   │   ├── health.js           GET /api/health  (pública)
 │   │   ├── auth.js             cadastro, login e perfil
-│   │   └── chat.js             histórico da sala, chat privado e limpeza (protegidas)
+│   │   ├── chat.js             histórico da sala, chat privado e limpeza (protegidas)
+│   │   └── analyticsRoutes.js  GET /api/analytics/tokens (JWT + admin)
+│   ├── scripts/definirAdmin.js promove/rebaixa UM usuário pelo e-mail
 │   ├── services/
 │   │   ├── gemini.js           chamada à IA e resolução de function calling
 │   │   ├── salaPublica.js      (novo) validação, persistência e Moderador Gemini
@@ -69,19 +81,24 @@ conversa quando alguém escreve `@gemini` ou `@bot`.
 │   │   ├── cloudinary.js       upload de imagens
 │   │   └── weather.js          consulta de clima (a "ferramenta" da IA)
 │   ├── socket/index.js         (novo) Socket.io: autenticação, eventos e usuários online
-│   ├── tests/salaTempoReal.test.js  (novo) testes de integração
+│   ├── tests/
+│   │   ├── salaTempoReal.test.js   testes da sala em tempo real e do debate
+│   │   └── adminAnalytics.test.js  testes de RBAC, tokens, analytics e painel
 │   ├── server.js               Express + Socket.io no mesmo servidor HTTP
 │   └── .env.example
 └── frontend/
     ├── index.html              login e cadastro
     ├── chat.html               sala pública (protegida)
+    ├── dashboard.html          painel administrativo (Chart.js)
     ├── css/style.css
+    ├── css/dashboard.css
     └── js/
         ├── config.js           ← ÚNICO arquivo a editar no deploy
         ├── api.js              acesso à API e sessão (token_saas)
         ├── status.js           luz verde/vermelha
         ├── auth.js
         ├── chat.js             cliente em tempo real
+        ├── dashboard.js        painel: API, gráficos e tempo real
         └── vendor/socket.io.min.js  (novo) cliente Socket.io 4.8.4
 ```
 
@@ -116,6 +133,9 @@ Navegador A ◀─mensagemRecebida└──────────────�
 | servidor → todos | `mensagensRemovidas` | `{ ids }` (após limpar histórico) |
 | servidor → remetente | `erroChat` | `{ erro }` |
 | servidor → remetente | `sessaoExpirada` | `{ erro }` (o JWT venceu com a aba aberta) |
+| painel → servidor | `entrarPainelAdmin` | pede para receber eventos administrativos (+ callback `{ ok }` ou `{ ok: false, status: 403 }`) |
+| servidor → sala `admins` | `novoGastoDeToken` | `(quantidade, { mensagemId, createdAt, dia, hora, origem, modelo })` |
+| servidor → painel | `painelAdminNegado` | `{ erro }` quando o admin perde o papel com o painel aberto |
 
 Erros de conexão chegam no `connect_error` com `err.data.codigo`:
 `TOKEN_INVALIDO`, `TOKEN_EXPIRADO`, `USUARIO_INEXISTENTE` (o front volta para o login) ou
@@ -132,6 +152,95 @@ Erros de conexão chegam no `connect_error` com `err.data.codigo`:
 - CORS do Socket.io usa a mesma regra do Express, e a origem também é checada no upgrade para WebSocket (`allowRequest`).
 - Todas as chaves ficam nas variáveis de ambiente do back-end. O front só conhece a URL da API.
 - O front escreve as mensagens com `textContent`, sem `innerHTML`, então não há XSS.
+
+---
+
+## 📊 Painel administrativo (RBAC + Analytics)
+
+### Papéis (RBAC)
+
+- O campo `role` do usuário (`models/Usuario.js`) vale `"user"` por padrão. O cadastro
+  **ignora** um `role` enviado pelo cliente, e nenhuma rota da API altera esse campo.
+- `autenticarToken` (`middlewares/auth.js`) valida o JWT e **busca o usuário no MongoDB**
+  a cada requisição, preenchendo `req.usuario.role`. O papel não fica no token: se um admin
+  for rebaixado, ele perde o acesso na próxima requisição.
+- `apenasAdmin` (`middlewares/apenasAdmin.js`) deixa passar só `role === "admin"`; os demais
+  recebem **403**.
+
+```js
+router.get("/tokens", autenticarToken, apenasAdmin, obterAnaliseDeTokens);
+```
+
+### Como virar administrador
+
+Cadastre-se no app normalmente e depois promova **só a sua conta**:
+
+- **MongoDB Atlas (pelo site):** Database → **Browse Collections** → banco do app → coleção
+  **`usuarios`** → no filtro digite `{ "email": "seu@email.com" }` → **Apply** → no documento
+  que aparecer, clique no lápis (**Edit**) → em `role` troque `"user"` por `"admin"` (se o
+  campo não existir, **Add field** `role`, tipo String, valor `admin`) → **Update**.
+- **mongosh:**
+  `db.usuarios.updateOne({ email: "seu@email.com" }, { $set: { role: "admin" } })`
+  (confira que a resposta tem `matchedCount: 1`).
+- **Script do projeto** (usa a `MONGO_URI` do `backend/.env`):
+  `cd backend && npm run admin -- seu@email.com` (para tirar: `--remover`).
+
+Depois **saia e entre de novo** no app. O link **📊 Painel** aparece no topo do chat.
+
+### Consumo de tokens
+
+Cada resposta do Gemini (chat privado, `@gemini` na sala e falas do Gemini no debate) grava:
+
+| Campo (`models/Mensagem.js`) | Origem no `usageMetadata` do Google |
+|---|---|
+| `tokensGastos` | `totalTokenCount` |
+| `tokensEntrada` | `promptTokenCount` + `toolUsePromptTokenCount` |
+| `tokensSaida` | `candidatesTokenCount` + `thoughtsTokenCount` |
+| `modeloIA` | modelo que respondeu (útil para calcular custo por modelo) |
+
+O projeto usa a API REST do Gemini, não o SDK. O serviço devolve o resultado no mesmo
+formato do SDK (`result.response.usageMetadata`), e o `chatController` lê
+`result.response.usageMetadata.totalTokenCount`. Quando a IA usa o clima (function calling),
+a resposta passa por até 3 chamadas ao Gemini e o consumo **somado das chamadas reais** é
+gravado. Sem metadados válidos, o chat responde normalmente e grava `tokensGastos: 0`:
+nada é estimado. Mensagens humanas e falas do Mistral ficam com 0. O consumo nunca é
+devolvido ao usuário comum (nem no REST nem no WebSocket).
+
+### `GET /api/analytics/tokens?dias=7|30|90`
+
+Um único `Mensagem.aggregate()` com `$facet`, calculado inteiro no MongoDB (`$group`,
+`$sum`, `$dateToString`/`$hour` com fuso, `$setWindowFields` para o acumulado).
+Formato da resposta (valores de exemplo, listas encurtadas):
+
+```json
+{
+  "totalTokens": 18664, "totalMensagens": 62, "totalUsuarios": 2,
+  "tokensPorDia":   [{ "dia": "2026-11-10", "tokens": 1150, "tokensAcumulados": 18664 }],
+  "mensagensPorDia":[{ "dia": "2026-11-10", "mensagens": 4, "respostasIA": 2 }],
+  "mediaTokensPorResposta": 602.1, "totalRespostasIA": 31, "respostasComTokens": 31,
+  "tokensEntrada": 8500, "tokensSaida": 10164, "totalAdmins": 1,
+  "ultimos7Dias": { "tokens": 9100, "mensagens": 32 }, "ultimos30Dias": { "...": "..." },
+  "porHora": [{ "hora": 0, "mensagens": 0, "tokens": 0 }],
+  "horarioDePico": { "hora": 8, "mensagens": 26 },
+  "periodo": { "dias": 30, "inicio": "2026-10-13", "fim": "2026-11-11", "fusoHorario": "America/Sao_Paulo" },
+  "geradoEm": "2026-11-11T11:08:17.000Z"
+}
+```
+
+Sem token → **401**. Usuário comum → **403**. Admin → **200**.
+
+### O painel (`frontend/dashboard.html`)
+
+- Cards: usuários, mensagens, tokens consumidos (entrada × saída) e média por resposta da IA.
+- Gráficos (Chart.js): tokens por dia (`<canvas id="graficoTokens">`), mensagens por dia e
+  horários de maior atividade; filtro de 7, 30 ou 90 dias; tabela com os dados.
+- **Proteção:** a Vercel serve HTML estático, então a página em si não tem dados: ela é uma
+  casca. Todos os números vêm de `/api/analytics/tokens`, que o servidor só entrega para admin.
+  Quem não é admin vê "Acesso restrito"; sem login, volta para a tela de entrada.
+- **Ao vivo:** o painel conecta no mesmo Socket.io do chat, pede `entrarPainelAdmin` (o servidor
+  confere o `role` no banco) e escuta `novoGastoDeToken`. Os cards e o gráfico de hoje sobem
+  na hora; o mesmo `mensagemId` nunca conta duas vezes, e depois de cada evento (e a cada
+  reconexão e a cada minuto) o painel confere tudo com a API, que é a fonte da verdade.
 
 ---
 
@@ -220,7 +329,10 @@ anônima) e entre com contas diferentes.
 | `CORS_ORIGIN` | sim em produção | URL da Vercel, sem barra no final. Vale para REST e Socket.io |
 | `PORT` | não | O Render define sozinho |
 | `NODE_ENV` | não | `production` no Render |
+| `ANALYTICS_TIMEZONE` | não | Fuso dos gráficos por dia/hora do painel. Padrão `America/Sao_Paulo` |
+| `REVALIDAR_ADMINS_MS` | não | De quanto em quanto tempo a sala de admins do Socket.io é conferida no banco. Padrão `60000` |
 | `MONGO_URI_TESTE` | só para `npm test` | Banco descartável (é apagado a cada execução) |
+| `MONGO_AGREGACAO` | só para `npm test` | `mingo` quando o banco de teste não é um MongoDB completo (ex.: FerretDB) |
 
 No Atlas, em **Network Access**, libere `0.0.0.0/0` — senão o Render não
 consegue conectar.
@@ -239,6 +351,11 @@ MONGO_URI_TESTE="mongodb://127.0.0.1:27017/chatbot-teste" npm test
 
 > Use um MongoDB **local ou um banco separado**. O banco de teste é apagado.
 > Sem `MONGO_URI_TESTE`, os testes são pulados.
+>
+> Se o banco de teste não for um MongoDB completo (por exemplo, FerretDB, que não implementa
+> `$facet`, `$dateToString` e `$setWindowFields`), rode com `MONGO_AGREGACAO=mingo`: o mesmo
+> pipeline do `/api/analytics` é executado pelo [mingo](https://github.com/kofrasa/mingo).
+> Com um MongoDB de verdade (local ou um cluster de teste no Atlas), não use essa variável.
 
 Cobrem: mensagem chegando na outra sessão, mensagem comum sem Gemini, `@gemini`/`@bot`
 com resposta única para todos, recusa de JWT inválido/ausente/expirado/de outro
@@ -247,7 +364,12 @@ payload, contador online (incluindo duas abas da mesma pessoa), reenvio e envio
 simultâneo do mesmo `clientId` sem duplicar, mensagem vazia, longa ou com imagem
 falsa, limite de flood, imagem para o Cloudinary e para o Gemini, histórico REST
 com os mesmos `_id` do WebSocket, rotas antigas (login, `/me`, chat privado, health),
-CORS e limpeza do histórico avisando a sala.
+CORS e limpeza do histórico avisando a sala. Na parte administrativa: cadastro sempre
+como `user` (mesmo enviando `role: "admin"`), 401/403/200 no `/api/analytics/tokens`,
+admin rebaixado perdendo o acesso na hora, captura do `usageMetadata` (incluindo a soma
+das chamadas com function calling e o caso sem metadados), `novoGastoDeToken` chegando só
+ao painel de admin e uma vez por resposta, totais por dia/hora/média conferidos contra o
+banco, fuso padrão e uma auditoria dos nomes exigidos pela rubrica.
 
 ---
 
@@ -263,6 +385,7 @@ CORS e limpeza do histórico avisando a sala.
 | `GET` | `/api/chat/historico` | sim | Conversa privada com o assistente (endpoint original) |
 | `POST` | `/api/chat` | sim | Conversa privada. `multipart/form-data`: `mensagem`, `imagem` |
 | `DELETE` | `/api/chat/historico` | sim | Apaga suas mensagens (privadas e da sala) e avisa a sala |
+| `GET` | `/api/analytics/tokens?dias=30` | sim + **admin** | Métricas do painel (401 sem token, 403 sem permissão) |
 
 Rotas com token exigem o cabeçalho `Authorization: Bearer <token>`.
 O Socket.io responde no mesmo endereço, no caminho `/socket.io`.

@@ -98,7 +98,7 @@ const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const { io: conectar } = require('socket.io-client');
 const { servidor, io, iniciar } = require('../server');
-const Mensagem = require('../models/Message');
+const Mensagem = require('../models/Mensagem');
 
 let base;
 const abertos = [];

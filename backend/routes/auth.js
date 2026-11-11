@@ -2,8 +2,8 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-const Usuario = require('../models/User');
-const verificarToken = require('../middleware/auth');
+const Usuario = require('../models/Usuario');
+const verificarToken = require('../middlewares/auth');
 
 const router = express.Router();
 
@@ -36,7 +36,9 @@ router.post('/register', async (req, res, next) => {
     }
 
     const senhaHash = await bcrypt.hash(senha, 10);
-    const usuario = await Usuario.create({ nome, email, senhaHash });
+    // Campos escolhidos a dedo: um "role" enviado no corpo e ignorado.
+    // Todo cadastro nasce "user"; virar "admin" so pelo banco (veja o README).
+    const usuario = await Usuario.create({ nome, email, senhaHash, role: 'user' });
 
     return res.status(201).json({
       mensagem: 'Conta criada com sucesso.',

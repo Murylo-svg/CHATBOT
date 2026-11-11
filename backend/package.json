@@ -1,7 +1,7 @@
 {
   "name": "agente-ia-backend",
-  "version": "2.0.0",
-  "description": "API do Agente de IA multimodal com sala publica em tempo real (Socket.io), memoria, JWT e function calling",
+  "version": "3.0.0",
+  "description": "API do Agente de IA: sala publica em tempo real (Socket.io), memoria, JWT, RBAC e analytics de tokens do Gemini",
   "main": "server.js",
   "engines": {
     "node": ">=18.0.0"
@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test --test-concurrency=1 tests/*.test.js"
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
+    "admin": "node scripts/definirAdmin.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -23,6 +24,7 @@
     "socket.io": "^4.8.4"
   },
   "devDependencies": {
+    "mingo": "^7.2.7",
     "socket.io-client": "^4.8.4"
   }
 }

@@ -66,8 +66,47 @@ const mensagemSchema = new mongoose.Schema(
       ref: 'Mensagem',
       default: null,
     },
+
+    // ---------- Consumo do Google Gemini (Dashboard administrativo) ----------
+    // Total de tokens da resposta (usageMetadata.totalTokenCount, somado entre as
+    // chamadas quando a IA usa function calling). 0 = mensagem humana ou sem metadados.
+    tokensGastos: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    // Separacao entrada/saida, para calcular custo por modelo no futuro
+    // (entrada = promptTokenCount + toolUsePromptTokenCount;
+    //  saida   = candidatesTokenCount + thoughtsTokenCount)
+    tokensEntrada: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    tokensSaida: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    // Modelo do Gemini que gerou a resposta (ex.: o reserva, quando o principal falha)
+    modeloIA: {
+      type: String,
+      default: null,
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: {
+      // Consumo de tokens e informacao administrativa: nunca vai junto da mensagem para o usuario
+      transform(doc, ret) {
+        delete ret.tokensGastos;
+        delete ret.tokensEntrada;
+        delete ret.tokensSaida;
+        delete ret.modeloIA;
+        return ret;
+      },
+    },
+  }
 );
 
 // Historico da sala em ordem cronologica

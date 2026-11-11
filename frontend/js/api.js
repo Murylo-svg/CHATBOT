@@ -71,7 +71,9 @@ async function chamarApi(caminho, opcoes = {}) {
   }
 
   if (!resposta.ok) {
-    throw new Error(dados?.erro || `Erro ${resposta.status}`);
+    const erro = new Error(dados?.erro || `Erro ${resposta.status}`);
+    erro.status = resposta.status; // ex.: 403 = sem permissão
+    throw erro;
   }
 
   return dados;

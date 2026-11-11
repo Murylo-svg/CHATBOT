@@ -21,6 +21,13 @@ const usuarioSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // RBAC: todo cadastro nasce como "user". So o banco (ou scripts/definirAdmin.js)
+    // promove alguem a "admin"; nenhuma rota da API altera este campo.
+    role: {
+      type: String,
+      default: "user",
+      enum: ["user", "admin"],
+    },
   },
   { timestamps: true }
 );
